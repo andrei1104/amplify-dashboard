@@ -1129,18 +1129,6 @@ export default function AnaliseView() {
     return days;
   }, [mainLeads, appliedFrom, appliedTo]);
 
-  const dailyBySdr = useMemo(() => {
-    return dailyData.map(d => {
-      const entry = { date: d.date.slice(5).replace("-", "/") };
-      HUMAN_SDRS.forEach(sdr => {
-        const sdrLeads = mainLeads.filter(l => l.date === d.date && l.sdr === sdr);
-        entry[`${sdr}_leads`] = sdrLeads.length;
-        entry[`${sdr}_ag`]    = sdrLeads.filter(l => l.fase === "Agenciado").length;
-      });
-      return entry;
-    });
-  }, [dailyData, mainLeads]);
-
   const sdrStats = useMemo(() => MAIN_SDRS.map(name => {
     const sLeads    = mainLeads.filter(l => l.sdr === name);
     const converted = sLeads.filter(l => isConverted(l.fase)).length;
@@ -1201,6 +1189,20 @@ export default function AnaliseView() {
 
   const AI_SDRS    = MAIN_SDRS.filter(s =>  AGENT_META[s]?.isAI);
   const HUMAN_SDRS = MAIN_SDRS.filter(s => !AGENT_META[s]?.isAI);
+
+  // ─── Performance diária por SDR (precisa de HUMAN_SDRS acima) ─
+  const dailyBySdr = useMemo(() => {
+    return dailyData.map(d => {
+      const entry = { date: d.date.slice(5).replace("-", "/") };
+      HUMAN_SDRS.forEach(sdr => {
+        const sdrLeads = mainLeads.filter(l => l.date === d.date && l.sdr === sdr);
+        entry[`${sdr}_leads`] = sdrLeads.length;
+        entry[`${sdr}_ag`]    = sdrLeads.filter(l => l.fase === "Agenciado").length;
+      });
+      return entry;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dailyData, mainLeads]);
 
   // SDRs visíveis no funil conforme aba selecionada
   const activeFunnelSdrs = funnelView === "ia"   ? AI_SDRS
