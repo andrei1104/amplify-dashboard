@@ -377,23 +377,39 @@ function SdrConversionChart({ sdrStats, meta, selectedSdr, onSdrClick }) {
 }
 
 // ─── LeadsAndTrendBySdrChart: mesma estrutura do por-origem, mas barras = SDR ──
-function LeadsAndTrendBySdrChart({ dailyData, agentMeta, humanSdrs }) {
+// filterSdr: quando definido, filtra dados para um único SDR (usa dailyBySdr para leads/conv por SDR)
+function LeadsAndTrendBySdrChart({ dailyData, agentMeta, humanSdrs, filterSdr, dailyBySdr }) {
   if (!dailyData.length) return <p style={{ color: "var(--text-muted)", fontSize: "0.8rem", textAlign: "center", padding: "2rem 0" }}>Sem dados no período.</p>;
 
   // SDRs que aparecem nos agenciados do período
-  const activeSdrs = humanSdrs.filter(sdr =>
-    dailyData.some(d => (d.bySdrAgenciados || {})[sdr] > 0)
-  );
+  const activeSdrs = filterSdr
+    ? [filterSdr]
+    : humanSdrs.filter(sdr => dailyData.some(d => (d.bySdrAgenciados || {})[sdr] > 0));
   // fallback: todos os humanos se nenhum agenciado
-  const sdrs = activeSdrs.length ? activeSdrs : humanSdrs;
+  const sdrs = activeSdrs.length ? activeSdrs : (filterSdr ? [filterSdr] : humanSdrs);
 
-  const chartData = dailyData.map(d => ({
-    date:          d.date.slice(5).replace("-", "/"),
-    "Total Leads": d.total,
-    "Conv %":      d.total > 0 ? parseFloat(((d.converted / d.total) * 100).toFixed(1)) : null,
-    _agenciados:   d.agenciados || 0,
-    ...(d.bySdrAgenciados || {}),
-  }));
+  // Quando filterSdr definido: Total Leads e Conv % são do SDR específico
+  const chartData = dailyData.map((d, i) => {
+    if (filterSdr && dailyBySdr) {
+      const row       = dailyBySdr[i] || {};
+      const sdrLeads  = row[`${filterSdr}_leads`] || 0;
+      const sdrAg     = row[`${filterSdr}_ag`]    || 0;
+      return {
+        date:          d.date.slice(5).replace("-", "/"),
+        "Total Leads": sdrLeads,
+        "Conv %":      sdrLeads > 0 ? parseFloat(((sdrAg / sdrLeads) * 100).toFixed(1)) : null,
+        _agenciados:   sdrAg,
+        [filterSdr]:   sdrAg,
+      };
+    }
+    return {
+      date:          d.date.slice(5).replace("-", "/"),
+      "Total Leads": d.total,
+      "Conv %":      d.total > 0 ? parseFloat(((d.converted / d.total) * 100).toFixed(1)) : null,
+      _agenciados:   d.agenciados || 0,
+      ...(d.bySdrAgenciados || {}),
+    };
+  });
 
   const BarLabel = ({ x, y, width, height, value }) => {
     if (!value || height < 18 || width < 10) return null;
@@ -486,6 +502,153 @@ function LeadsAndTrendBySdrChart({ dailyData, agentMeta, humanSdrs }) {
   );
 }
 
+// ─── LeadsAndTrendByFaseChart: barras por fase + filtro SDR ──
+function LeadsAndTrendByFaseChart({ mainLeads, appliedFrom, appliedTo, agentMeta, allSdrs }) {
+  const [filterSdr, setFilterSdr] = useState("Todos");
+
+  const filteredLeads = useMemo(() =>
+    filterSdr === "Todos" ? mainLeads : mainLeads.filter(l => l.sdr === filterSdr),
+  [mainLeads, filterSdr]);
+
+  const faseDailyData = useMemo(() => {
+    if (!appliedFrom || !appliedTo) return [];
+    const days = [];
+    const cur  = new Date(appliedFrom + "T12:00:00");
+    const end  = new Date(appliedTo   + "T12:00:00");
+    while (cur <= end) {
+      const ds       = toLocalDate(cur);
+      const dayLeads = filteredLeads.filter(l => l.date === ds);
+      const byFase   = {};
+      dayLeads.forEach(l => {
+        const f = l.fase || "Desconhecido";
+        byFase[f] = (byFase[f] || 0) + 1;
+      });
+      days.push({ date: ds, total: dayLeads.length, converted: dayLeads.filter(l => isConverted(l.fase)).length, byFase });
+      cur.setDate(cur.getDate() + 1);
+    }
+    return days;
+  }, [filteredLeads, appliedFrom, appliedTo]);
+
+  if (!faseDailyData.length) return <p style={{ color: "var(--text-muted)", fontSize: "0.8rem", textAlign: "center", padding: "2rem 0" }}>Sem dados no período.</p>;
+
+  const allFases = [...new Set(faseDailyData.flatMap(d => Object.keys(d.byFase || {})))];
+
+  const chartData = faseDailyData.map(d => ({
+    date:          d.date.slice(5).replace("-", "/"),
+    "Total Leads": d.total,
+    "Conv %":      d.total > 0 ? parseFloat(((d.converted / d.total) * 100).toFixed(1)) : null,
+    _total:        d.total,
+    ...(d.byFase || {}),
+  }));
+
+  const BarLabel = ({ x, y, width, height, value }) => {
+    if (!value || height < 18 || width < 10) return null;
+    return (
+      <text x={x + width / 2} y={y + height / 2 + 1} textAnchor="middle" dominantBaseline="middle"
+        style={{ fontSize: height < 24 ? "0.52rem" : "0.6rem", fontWeight: 700, fill: "rgba(255,255,255,0.88)", pointerEvents: "none" }}>
+        {value}
+      </text>
+    );
+  };
+
+  const makeTopBarLabel = (faseIndex) => ({ x, y, index }) => {
+    const isTopmost = allFases.slice(faseIndex + 1).every(f => !(chartData[index]?.[f] > 0));
+    if (!isTopmost) return null;
+    const val = chartData[index]?._total;
+    if (!val) return null;
+    return (
+      <text x={x + 16} y={y - 5} textAnchor="middle" dominantBaseline="auto"
+        fill="#38bdf8" stroke="rgba(0,0,0,0.85)" strokeWidth="0.5" paintOrder="stroke"
+        style={{ fontSize: "0.65rem", fontWeight: 800 }}>
+        {val}
+      </text>
+    );
+  };
+
+  const LineLabel = ({ x, y, value, color }) => {
+    if (value == null) return null;
+    return <text x={x} y={y - 8} textAnchor="middle" style={{ fontSize: "0.58rem", fontWeight: 700, fill: color }}>{value}</text>;
+  };
+
+  // SDR filter buttons
+  const sdrOptions = [
+    { key: "Todos", label: "Todos", color: "#a78bfa" },
+    ...allSdrs.map(s => ({ key: s, label: agentMeta[s]?.displayName || s.split(" ")[0], color: agentMeta[s]?.color || "#64748b" })),
+  ];
+
+  return (
+    <>
+      {/* SDR filter */}
+      <div style={{ display: "flex", gap: "6px", marginBottom: "14px", flexWrap: "wrap" }}>
+        {sdrOptions.map(opt => (
+          <button key={opt.key} onClick={() => setFilterSdr(opt.key)}
+            style={{
+              padding: "4px 12px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer",
+              fontWeight: filterSdr === opt.key ? 700 : 400,
+              border: filterSdr === opt.key ? `1px solid ${opt.color}88` : "1px solid rgba(255,255,255,0.1)",
+              background: filterSdr === opt.key ? `${opt.color}22` : "rgba(255,255,255,0.05)",
+              color: filterSdr === opt.key ? opt.color : "var(--text-muted)",
+            }}>
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Legenda de fases */}
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px", alignItems: "center" }}>
+        {allFases.map(f => (
+          <div key={f} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: getFaseColor(f) }} />
+            <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{f}</span>
+          </div>
+        ))}
+        <div style={{ display: "flex", alignItems: "center", gap: "4px", marginLeft: "6px" }}>
+          <svg width="16" height="10"><line x1="0" y1="5" x2="16" y2="5" stroke="#38bdf8" strokeWidth="2.5" /></svg>
+          <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>Total Leads</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <svg width="16" height="10"><line x1="0" y1="5" x2="16" y2="5" stroke="#c026d3" strokeWidth="2" strokeDasharray="4 2" /></svg>
+          <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>Conv %</span>
+        </div>
+      </div>
+
+      <ResponsiveContainer width="100%" height={300}>
+        <ComposedChart data={chartData} margin={{ top: 22, right: 40, bottom: 5, left: -10 }}>
+          <CartesianGrid {...RC_GRID} vertical={false} />
+          <XAxis dataKey="date" tick={RC_AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+          <YAxis yAxisId="left"  tick={RC_AXIS} axisLine={false} tickLine={false} domain={[0, dataMax => dataMax * 1.15]} />
+          <YAxis yAxisId="pct"   orientation="right" tick={{ ...RC_AXIS, fill: "#c026d3" }}
+            axisLine={false} tickLine={false} domain={[0, 100]} tickFormatter={v => `${v}%`} />
+          <YAxis yAxisId="leads" hide={true} domain={[0, "auto"]} />
+          <Tooltip
+            {...RC_TOOLTIP}
+            formatter={(value, name) => name === "Conv %" ? [`${value}%`, name] : [value, name]}
+            labelFormatter={label => `📅 ${label}`}
+          />
+          {allFases.map((f, i) => (
+            <Bar key={f} yAxisId="left" dataKey={f} stackId="stack" name={f}
+              fill={getFaseColor(f)} maxBarSize={32}
+              radius={i === allFases.length - 1 ? [3,3,0,0] : [0,0,0,0]}>
+              <LabelList content={BarLabel} />
+              <LabelList content={makeTopBarLabel(i)} />
+            </Bar>
+          ))}
+          <Line yAxisId="leads" type="monotone" dataKey="Total Leads"
+            stroke="#38bdf8" strokeWidth={2.5}
+            dot={{ fill: "#38bdf8", r: 3.5, strokeWidth: 0 }} connectNulls={false}>
+            <LabelList dataKey="Total Leads" position="top" content={({ x, y, value }) => <LineLabel x={x} y={y} value={value} color="#38bdf8" />} />
+          </Line>
+          <Line yAxisId="pct" type="monotone" dataKey="Conv %"
+            stroke="#c026d3" strokeWidth={2.5} strokeDasharray="5 3"
+            dot={{ fill: "#c026d3", r: 3, strokeWidth: 0 }} connectNulls={false}>
+            <LabelList dataKey="Conv %" position="top" content={({ x, y, value }) => <LineLabel x={x} y={y} value={value != null ? `${value}%` : null} color="#c026d3" />} />
+          </Line>
+        </ComposedChart>
+      </ResponsiveContainer>
+    </>
+  );
+}
+
 // ─── SdrDailyChart: leads + agenciados por dia por SDR ───────
 function SdrDailyChart({ dailyBySdr, humanSdrs, agentMeta }) {
   const [mode, setMode] = useState("ag"); // "ag" | "leads"
@@ -494,28 +657,36 @@ function SdrDailyChart({ dailyBySdr, humanSdrs, agentMeta }) {
     <p style={{ color:"var(--text-muted)", fontSize:"0.8rem", textAlign:"center", padding:"2rem 0" }}>Sem dados no período.</p>
   );
 
-  const maxVal = Math.max(1, ...dailyBySdr.flatMap(d =>
+  // Média diária total (soma de todos os SDRs / dias com qualquer valor)
+  const daysWithData = dailyBySdr.filter(d => humanSdrs.some(s => (d[`${s}_${mode}`] || 0) > 0));
+  const totalSum     = dailyBySdr.reduce((a, d) => a + humanSdrs.reduce((b, s) => b + (d[`${s}_${mode}`] || 0), 0), 0);
+  const avgVal       = daysWithData.length > 0 ? parseFloat((totalSum / daysWithData.length).toFixed(1)) : 0;
+
+  const chartDataWithAvg = dailyBySdr.map(d => ({ ...d, "Média": avgVal }));
+
+  const maxVal = Math.max(1, avgVal, ...dailyBySdr.flatMap(d =>
     humanSdrs.map(s => d[`${s}_${mode}`] || 0)
   ));
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
+    const barPayload = payload.filter(p => p.type !== "line");
     return (
       <div style={{ background:"rgba(10,10,25,0.97)", border:"1px solid rgba(255,255,255,0.14)",
         borderRadius:"8px", padding:"10px 14px", fontSize:"0.72rem" }}>
         <p style={{ color:"rgba(255,255,255,0.6)", marginBottom:"6px", fontWeight:600 }}>📅 {label}</p>
-        {payload.map((p, i) => (
+        {barPayload.map((p, i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:"6px", marginBottom:"3px" }}>
             <div style={{ width:8, height:8, borderRadius:"50%", background:p.fill }} />
             <span style={{ color:p.fill, fontWeight:700 }}>{p.name}:</span>
             <span style={{ color:"#fff" }}>{p.value} {mode === "ag" ? "ag." : "leads"}</span>
           </div>
         ))}
-        {/* Total do dia */}
-        <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)", marginTop:"6px", paddingTop:"6px" }}>
+        <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)", marginTop:"6px", paddingTop:"6px", display:"flex", justifyContent:"space-between" }}>
           <span style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.68rem" }}>
-            Total: {payload.reduce((a, p) => a + (p.value || 0), 0)} {mode === "ag" ? "ag." : "leads"}
+            Total: {barPayload.reduce((a, p) => a + (p.value || 0), 0)} {mode === "ag" ? "ag." : "leads"}
           </span>
+          <span style={{ color:"#fbbf24", fontSize:"0.68rem" }}>méd: {avgVal}</span>
         </div>
       </div>
     );
@@ -524,7 +695,7 @@ function SdrDailyChart({ dailyBySdr, humanSdrs, agentMeta }) {
   return (
     <>
       {/* Toggle */}
-      <div style={{ display:"flex", gap:"6px", marginBottom:"14px" }}>
+      <div style={{ display:"flex", gap:"6px", marginBottom:"14px", alignItems:"center" }}>
         {[
           { key:"ag",    label:"Agenciados/dia" },
           { key:"leads", label:"Leads/dia"      },
@@ -540,14 +711,19 @@ function SdrDailyChart({ dailyBySdr, humanSdrs, agentMeta }) {
             {opt.label}
           </button>
         ))}
+        {/* Legenda da média */}
+        <div style={{ display:"flex", alignItems:"center", gap:"5px", marginLeft:"8px" }}>
+          <svg width="16" height="10"><line x1="0" y1="5" x2="16" y2="5" stroke="#fbbf24" strokeWidth="2" strokeDasharray="4 2" /></svg>
+          <span style={{ fontSize:"0.68rem", color:"#fbbf24" }}>Média: {avgVal} {mode === "ag" ? "ag/dia" : "leads/dia"}</span>
+        </div>
       </div>
 
-      {/* Gráfico barras agrupadas */}
+      {/* Gráfico barras agrupadas + linha de média */}
       <ResponsiveContainer width="100%" height={240}>
-        <BarChart data={dailyBySdr} margin={{ top:10, right:10, bottom:5, left:-10 }} barCategoryGap="20%">
+        <ComposedChart data={chartDataWithAvg} margin={{ top:10, right:10, bottom:5, left:-10 }} barCategoryGap="20%">
           <CartesianGrid {...RC_GRID} vertical={false} />
           <XAxis dataKey="date" tick={RC_AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={RC_AXIS} axisLine={false} tickLine={false} domain={[0, Math.ceil(maxVal * 1.2) || 1]} />
+          <YAxis tick={RC_AXIS} axisLine={false} tickLine={false} domain={[0, Math.ceil(maxVal * 1.25) || 1]} />
           <Tooltip content={<CustomTooltip />} cursor={{ fill:"rgba(255,255,255,0.04)" }} />
           {humanSdrs.map(sdr => (
             <Bar key={sdr} dataKey={`${sdr}_${mode}`} name={agentMeta[sdr]?.displayName || sdr.split(" ")[0]}
@@ -567,7 +743,11 @@ function SdrDailyChart({ dailyBySdr, humanSdrs, agentMeta }) {
               />
             </Bar>
           ))}
-        </BarChart>
+          {/* Linha de média */}
+          <Line dataKey="Média" type="monotone"
+            stroke="#fbbf24" strokeWidth={2} strokeDasharray="6 3"
+            dot={false} activeDot={false} legendType="none" />
+        </ComposedChart>
       </ResponsiveContainer>
 
       {/* Tabela diária compacta */}
@@ -1445,13 +1625,51 @@ export default function AnaliseView() {
               <LeadsAndTrendChart dailyData={dailyData} originColors={originColors} selectedOrigem={selectedOrigem} onOriginClick={setSelectedOrigem} />
             </div>
 
-            {/* Mesmo gráfico por SDR */}
+            {/* Leads por Dia por Fase (com filtro de SDR) */}
+            <div className="glass-panel p-6 animate-fade-in">
+              <div style={{ marginBottom: "12px" }}>
+                <h2 style={{ fontSize: "0.88rem", fontWeight: 700, color: "var(--text-primary)" }}>🔵 Leads por Dia · Por Fase · Conv %</h2>
+                <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "3px" }}>Barras = leads por fase · Filtro por SDR</p>
+              </div>
+              <LeadsAndTrendByFaseChart
+                mainLeads={mainLeads}
+                appliedFrom={appliedFrom}
+                appliedTo={appliedTo}
+                agentMeta={AGENT_META}
+                allSdrs={MAIN_SDRS}
+              />
+            </div>
+
+            {/* Gráfico combinado: todos os SDRs */}
             <div className="glass-panel p-6 animate-fade-in">
               <div style={{ marginBottom: "4px" }}>
-                <h2 style={{ fontSize: "0.88rem", fontWeight: 700, color: "var(--text-primary)" }}>👤 Leads por Dia · Agenciados por SDR · Conv %</h2>
+                <h2 style={{ fontSize: "0.88rem", fontWeight: 700, color: "var(--text-primary)" }}>👥 Leads por Dia · Agenciados por SDR · Conv %</h2>
                 <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "3px" }}>Barras = agenciados por SDR · Linha azul = total leads · Linha roxa = taxa de conversão</p>
               </div>
               <LeadsAndTrendBySdrChart dailyData={dailyData} agentMeta={AGENT_META} humanSdrs={HUMAN_SDRS} />
+            </div>
+
+            {/* Gráficos individuais por SDR — lado a lado */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: "20px" }}>
+              {HUMAN_SDRS.map(sdr => (
+                <div key={sdr} className="glass-panel p-6 animate-fade-in">
+                  <div style={{ marginBottom: "4px" }}>
+                    <h2 style={{ fontSize: "0.88rem", fontWeight: 700, color: AGENT_META[sdr]?.color || "var(--text-primary)" }}>
+                      {AGENT_META[sdr]?.displayName || sdr}
+                    </h2>
+                    <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "3px" }}>
+                      Leads/dia · Agenciados/dia · Taxa de conversão
+                    </p>
+                  </div>
+                  <LeadsAndTrendBySdrChart
+                    dailyData={dailyData}
+                    agentMeta={AGENT_META}
+                    humanSdrs={HUMAN_SDRS}
+                    filterSdr={sdr}
+                    dailyBySdr={dailyBySdr}
+                  />
+                </div>
+              ))}
             </div>
 
             {/* Performance diária detalhada por SDR (tabela + grouped bars) */}
