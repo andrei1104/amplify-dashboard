@@ -626,6 +626,20 @@ function LeadsAndTrendByFaseChart({ mainLeads, appliedFrom, appliedTo, agentMeta
             <Bar key={f} yAxisId="left" dataKey={f} stackId="stack" name={f}
               fill={getFaseColor(f)} maxBarSize={36}
               radius={i === presentFases.length - 1 ? [3,3,0,0] : [0,0,0,0]}>
+              {/* Valor do segmento — só aparece se o segmento tiver altura suficiente */}
+              <LabelList dataKey={f} position="center"
+                content={({ x, y, width, height, value }) => {
+                  if (!value || height < 18) return null;
+                  return (
+                    <text x={x + width / 2} y={y + height / 2 + 4}
+                      textAnchor="middle" fontSize="10" fontWeight="700"
+                      fill="rgba(255,255,255,0.88)">
+                      {value}
+                    </text>
+                  );
+                }}
+              />
+              {/* Total do dia no topo da barra mais alta */}
               <LabelList content={makeTopLabel(i)} />
             </Bar>
           ))}
@@ -1136,7 +1150,11 @@ function KanbanFunnel({ funnelData, funnelView, activeFunnelSdrs, selectedSdr, o
 }
 
 // ─── Componente Principal ─────────────────────────────────────
-export default function AnaliseView() {
+export default function AnaliseView({
+  dateField  = "Data do Primeiro contato",
+  pageTitle  = "Análise por Período",
+  pageSubtitle = null,   // null → usa o subtitle padrão
+}) {
   const pathname = usePathname();
 
   // Default: últimos 7 dias
@@ -1164,7 +1182,7 @@ export default function AnaliseView() {
       const off = new Date().getTimezoneOffset();
       const abs = Math.abs(off);
       const tz  = `${off <= 0 ? "+" : "-"}${String(Math.floor(abs/60)).padStart(2,"0")}:${String(abs%60).padStart(2,"0")}`;
-      const res  = await fetch(`/api/notion?from=${from}&to=${to}&dateField=${encodeURIComponent("Data do Primeiro contato")}&tz=${encodeURIComponent(tz)}`);
+      const res  = await fetch(`/api/notion?from=${from}&to=${to}&dateField=${encodeURIComponent(dateField)}&tz=${encodeURIComponent(tz)}`);
       const json = await res.json();
       if (!res.ok || json.error) throw new Error(json.error || "Erro ao buscar dados");
       setData(json.data || []);
@@ -1456,8 +1474,10 @@ export default function AnaliseView() {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-6 animate-fade-in">
         <div>
-          <h1 className="dash-title">Análise por Período</h1>
-          <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)", marginTop: "4px" }}>{periodLabel}</p>
+          <h1 className="dash-title">{pageTitle}</h1>
+          <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+            {pageSubtitle ?? periodLabel}
+          </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
           {lastUpdated && (

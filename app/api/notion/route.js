@@ -39,6 +39,16 @@ function buildDateRange(targetDate, period) {
 const DEFAULT_DATE_FIELD = "Última mensagem enviada";
 
 function buildNotionFilter(from, to, dateField = DEFAULT_DATE_FIELD, tz = "-03:00") {
+  // Caso especial: filtrar pelo timestamp de última edição (campo de sistema)
+  if (dateField === "last_edited_time") {
+    return {
+      and: [
+        { timestamp: "last_edited_time", last_edited_time: { on_or_after:  `${from}T00:00:00${tz}` } },
+        { timestamp: "last_edited_time", last_edited_time: { on_or_before: `${to}T23:59:59${tz}`   } },
+      ],
+    };
+  }
+
   return {
     or: [
       // Caso 1: o campo de data está preenchido e cai no período
@@ -98,15 +108,30 @@ function toSlim(result, tzOffset, dateField) {
   const props = result.properties || {};
   const titleProp = props["Name"] || Object.values(props).find(p => p.type === "title");
 
-  // Tenta extrair a data pelo campo configurado; se vazio, usa created_time como fallback
-  let date = extractDateWithTz(props[dateField], tzOffset);
-  if (!date && result.created_time) {
-    const d = new Date(result.created_time);
-    if (!isNaN(d.getTime())) {
-      const sign     = tzOffset.startsWith("+") ? 1 : -1;
-      const [h, m]   = tzOffset.slice(1).split(":").map(Number);
-      const offsetMs = sign * (h * 60 + m) * 60_000;
-      date = new Date(d.getTime() + offsetMs).toISOString().slice(0, 10);
+  let date;
+  if (dateField === "last_edited_time") {
+    // Usa o timestamp de sistema diretamente do resultado
+    const s = result.last_edited_time;
+    if (s) {
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        const sign     = tzOffset.startsWith("+") ? 1 : -1;
+        const [h, m]   = tzOffset.slice(1).split(":").map(Number);
+        const offsetMs = sign * (h * 60 + m) * 60_000;
+        date = new Date(d.getTime() + offsetMs).toISOString().slice(0, 10);
+      }
+    }
+  } else {
+    // Tenta extrair a data pelo campo configurado; se vazio, usa created_time como fallback
+    date = extractDateWithTz(props[dateField], tzOffset);
+    if (!date && result.created_time) {
+      const d = new Date(result.created_time);
+      if (!isNaN(d.getTime())) {
+        const sign     = tzOffset.startsWith("+") ? 1 : -1;
+        const [h, m]   = tzOffset.slice(1).split(":").map(Number);
+        const offsetMs = sign * (h * 60 + m) * 60_000;
+        date = new Date(d.getTime() + offsetMs).toISOString().slice(0, 10);
+      }
     }
   }
 
