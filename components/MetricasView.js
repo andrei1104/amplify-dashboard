@@ -203,16 +203,23 @@ function StartBlock({ target, startCount, movingAvg, ritmoNecessario, wdRemainin
   );
 }
 
+// ─── Metadados visuais dos SDRs Sniper ───────────────────────────────────────
+const SDR_VISUAL = {
+  "Nicole Freitas": { color:"#ec4899", initials:"NF" },
+  "Bruno Zardo":    { color:"#10b981", initials:"BZ" },
+};
+
 // ─── Bloco 2 — Sniper ─────────────────────────────────────────────────────────
-function SniperBlock({ target, sniperTotals, sniperDailyByTier, sniperWdElapsed, sniperWdRemaining }) {
+function SniperBlock({ target, sniperTotals, sniperDailyByTier, sniperWdElapsed, sniperWdRemaining, sniperBySdr, sniperDailyBySdr }) {
   const tiers = [
     { key:"silver",  label:"Silver",  gmv:"> R$5k",    color:"#94a3b8", icon:"🥈" },
     { key:"gold",    label:"Gold",    gmv:"> R$30k",   color:"#f59e0b", icon:"🥇" },
     { key:"diamond", label:"Diamond", gmv:"> R$100k",  color:"#38bdf8", icon:"💎" },
     { key:"safira",  label:"Safira",  gmv:"> R$500k",  color:"#e879f9", icon:"💠" },
-  ].filter(t => target[t.key] > 0 || sniperTotals[t.key] > 0);  // oculta tiers sem meta e sem dados
+  ].filter(t => target[t.key] > 0 || sniperTotals[t.key] > 0);
 
   const totalMeta = tiers.reduce((a, t) => a + (target[t.key] || 0), 0);
+  const nSdrs = SNIPER_SDRS.length || 1;
 
   function movAvg(key) {
     const last5 = sniperWdElapsed.slice(-6, -1);
@@ -228,6 +235,15 @@ function SniperBlock({ target, sniperTotals, sniperDailyByTier, sniperWdElapsed,
     return parseFloat((rem / sniperWdRemaining).toFixed(1));
   }
 
+  // Ritmo diário individual por SDR (últ. 5 du)
+  function sdrMovAvg(sdr) {
+    const last5 = sniperWdElapsed.slice(-6, -1);
+    if (!last5.length) return 0;
+    const daily = sniperDailyBySdr?.[sdr] || {};
+    const sum = last5.reduce((a, d) => a + (daily[d] || 0), 0);
+    return parseFloat((sum / last5.length).toFixed(1));
+  }
+
   return (
     <div className="glass-panel p-6">
       <div style={{ marginBottom:"20px" }}>
@@ -238,39 +254,32 @@ function SniperBlock({ target, sniperTotals, sniperDailyByTier, sniperWdElapsed,
         </p>
       </div>
 
+      {/* Totais por tier */}
       <div style={{ display:"grid", gridTemplateColumns:`repeat(${tiers.length}, 1fr)`, gap:"14px" }}>
         {tiers.map(tier => {
-          const actual    = sniperTotals[tier.key] || 0;
-          const meta      = target[tier.key] || 0;
-          const pct       = meta > 0 ? Math.min(100, (actual / meta) * 100) : 0;
-          const avg       = movAvg(tier.key);
-          const rit       = ritmo(tier.key);
-          const st        = statusBadge(avg, rit);
+          const actual = sniperTotals[tier.key] || 0;
+          const meta   = target[tier.key] || 0;
+          const avg    = movAvg(tier.key);
+          const rit    = ritmo(tier.key);
+          const st     = statusBadge(avg, rit);
 
           return (
             <div key={tier.key} style={{
               background:"rgba(255,255,255,0.03)", borderRadius:"12px", padding:"16px",
               border:`1px solid ${tier.color}22`,
             }}>
-              {/* Header */}
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"12px" }}>
                 <div>
-                  <p style={{ fontSize:"0.85rem", fontWeight:700, color:tier.color }}>
-                    {tier.icon} {tier.label}
-                  </p>
+                  <p style={{ fontSize:"0.85rem", fontWeight:700, color:tier.color }}>{tier.icon} {tier.label}</p>
                   <p style={{ fontSize:"0.62rem", color:"var(--text-muted)" }}>{tier.gmv} GMV/mês</p>
                 </div>
                 <span style={{ fontSize:"0.65rem" }}>{st.icon}</span>
               </div>
-
-              {/* Contagem */}
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom:"10px" }}>
                 <span style={{ fontSize:"2rem", fontWeight:800, color:tier.color, lineHeight:1 }}>{actual}</span>
                 <span style={{ fontSize:"0.75rem", color:"var(--text-muted)" }}>/ {meta}</span>
               </div>
               <ProgressBar value={actual} max={meta} color={tier.color} height={6} />
-
-              {/* Ritmo */}
               <div style={{ marginTop:"10px", paddingTop:"8px", borderTop:"1px solid rgba(255,255,255,0.05)",
                 display:"flex", flexDirection:"column", gap:"4px" }}>
                 <div style={{ display:"flex", justifyContent:"space-between" }}>
@@ -287,12 +296,8 @@ function SniperBlock({ target, sniperTotals, sniperDailyByTier, sniperWdElapsed,
                   <div style={{ marginTop:"4px", paddingTop:"4px", borderTop:"1px solid rgba(255,255,255,0.04)" }}>
                     <p style={{ fontSize:"0.62rem", color:"var(--text-muted)" }}>
                       Comissão:{" "}
-                      <span style={{ color:tier.color, fontWeight:600 }}>
-                        {fmtBRL(actual * COMMISSION[tier.key])}
-                      </span>
-                      <span style={{ marginLeft:"4px", opacity:0.5 }}>
-                        / {fmtBRL(meta * COMMISSION[tier.key])}
-                      </span>
+                      <span style={{ color:tier.color, fontWeight:600 }}>{fmtBRL(actual * COMMISSION[tier.key])}</span>
+                      <span style={{ marginLeft:"4px", opacity:0.5 }}>/ {fmtBRL(meta * COMMISSION[tier.key])}</span>
                     </p>
                   </div>
                 )}
@@ -300,6 +305,120 @@ function SniperBlock({ target, sniperTotals, sniperDailyByTier, sniperWdElapsed,
             </div>
           );
         })}
+      </div>
+
+      {/* ─── Por SDR ─── */}
+      <div style={{ marginTop:"24px", paddingTop:"20px", borderTop:"1px solid rgba(255,255,255,0.07)" }}>
+        <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
+          color:"var(--text-muted)", fontWeight:600, marginBottom:"14px" }}>Progresso por SDR</p>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap:"14px" }}>
+          {SNIPER_SDRS.map(sdr => {
+            const vis      = SDR_VISUAL[sdr] || { color:"#a78bfa", initials:"??" };
+            const d        = sniperBySdr?.[sdr] || { total:0, silver:0, gold:0, diamond:0, safira:0 };
+            const avg      = sdrMovAvg(sdr);
+            const comm     = tiers.reduce((a, t) => a + (d[t.key] || 0) * (COMMISSION[t.key] || 0), 0);
+            const totalAg  = d.total || 0;
+            const metaTot  = Math.round(totalMeta / nSdrs);
+
+            // Faltam calculado pelo total individual
+            const faltam   = Math.max(0, metaTot - totalAg);
+            const ritmoNec = faltam > 0 && sniperWdRemaining > 0
+              ? parseFloat((faltam / sniperWdRemaining).toFixed(1))
+              : 0;
+            const st       = statusBadge(avg, ritmoNec);
+
+            return (
+              <div key={sdr} style={{
+                background:"rgba(255,255,255,0.03)", borderRadius:"14px", padding:"18px",
+                border:`1px solid ${vis.color}22`,
+              }}>
+                {/* Header SDR */}
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"16px" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
+                    <div style={{
+                      width:36, height:36, borderRadius:"50%",
+                      background:`${vis.color}22`, border:`2px solid ${vis.color}66`,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      fontSize:"0.75rem", fontWeight:800, color:vis.color,
+                    }}>{vis.initials}</div>
+                    <div>
+                      <p style={{ fontSize:"0.9rem", fontWeight:700, color:"var(--text-primary)", lineHeight:1 }}>
+                        {sdr.split(" ")[0]}
+                      </p>
+                      <p style={{ fontSize:"0.6rem", color:"var(--text-muted)", marginTop:"2px" }}>SDR Sniper</p>
+                    </div>
+                  </div>
+                  <span style={{ fontSize:"0.7rem" }}>{st.icon}</span>
+                </div>
+
+                {/* Tiers individuais */}
+                <div style={{ display:"flex", flexDirection:"column", gap:"10px", marginBottom:"14px" }}>
+                  {tiers.map(tier => {
+                    const act     = d[tier.key] || 0;
+                    const tierMeta = Math.round((target[tier.key] || 0) / nSdrs);
+                    const faltamT  = Math.max(0, tierMeta - act);
+                    return (
+                      <div key={tier.key}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"5px" }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:"6px" }}>
+                            <span style={{ fontSize:"0.75rem" }}>{tier.icon}</span>
+                            <span style={{ fontSize:"0.7rem", color:tier.color, fontWeight:600 }}>{tier.label}</span>
+                          </div>
+                          <div style={{ display:"flex", alignItems:"center", gap:"8px" }}>
+                            <span style={{ fontSize:"0.82rem", fontWeight:800, color:tier.color }}>{act}</span>
+                            <span style={{ fontSize:"0.6rem", color:"var(--text-muted)" }}>/ {tierMeta}</span>
+                            {faltamT > 0 && (
+                              <span style={{
+                                fontSize:"0.6rem", fontWeight:600, color:"#f59e0b",
+                                background:"rgba(245,158,11,0.12)", borderRadius:"4px", padding:"1px 6px",
+                              }}>−{faltamT}</span>
+                            )}
+                            {faltamT === 0 && act > 0 && (
+                              <span style={{
+                                fontSize:"0.6rem", fontWeight:600, color:"#10b981",
+                                background:"rgba(16,185,129,0.12)", borderRadius:"4px", padding:"1px 6px",
+                              }}>✓</span>
+                            )}
+                          </div>
+                        </div>
+                        <ProgressBar value={act} max={tierMeta || 1} color={tier.color} height={5} />
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Rodapé: total / ritmo / comissão */}
+                <div style={{
+                  marginTop:"12px", paddingTop:"12px", borderTop:"1px solid rgba(255,255,255,0.06)",
+                  display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:"8px",
+                }}>
+                  <div>
+                    <p style={{ fontSize:"0.58rem", textTransform:"uppercase", letterSpacing:"0.06em",
+                      color:"var(--text-muted)", marginBottom:"3px" }}>Total ag.</p>
+                    <p style={{ fontSize:"1.1rem", fontWeight:800, color:vis.color, lineHeight:1 }}>{totalAg}</p>
+                    <p style={{ fontSize:"0.58rem", color:"var(--text-muted)", marginTop:"2px" }}>
+                      {faltam > 0 ? `faltam ${faltam}` : "✓ meta batida"}
+                    </p>
+                  </div>
+                  <div>
+                    <p style={{ fontSize:"0.58rem", textTransform:"uppercase", letterSpacing:"0.06em",
+                      color:"var(--text-muted)", marginBottom:"3px" }}>Ritmo atual</p>
+                    <p style={{ fontSize:"1.1rem", fontWeight:800, color:st.color, lineHeight:1 }}>{avg}/dia</p>
+                    {ritmoNec > 0 && (
+                      <p style={{ fontSize:"0.58rem", color:"#a78bfa", marginTop:"2px" }}>nec. {ritmoNec}/dia</p>
+                    )}
+                  </div>
+                  <div>
+                    <p style={{ fontSize:"0.58rem", textTransform:"uppercase", letterSpacing:"0.06em",
+                      color:"var(--text-muted)", marginBottom:"3px" }}>Comissão</p>
+                    <p style={{ fontSize:"0.85rem", fontWeight:800, color:"#10b981", lineHeight:1 }}>{fmtBRL(comm)}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Nota sobre feriado / início Sniper */}
@@ -675,6 +794,18 @@ export default function MetricasView() {
     return map;
   }, [sniperCrm]);
 
+  // Contagem diária por SDR (independente do tier — para ritmo individual)
+  const sniperDailyBySdr = useMemo(() => {
+    const map = {};
+    SNIPER_SDRS.forEach(sdr => { map[sdr] = {}; });
+    sniperCrm.forEach(r => {
+      if (!r.date || !r.sdr) return;
+      if (!map[r.sdr]) map[r.sdr] = {};
+      map[r.sdr][r.date] = (map[r.sdr][r.date] || 0) + 1;
+    });
+    return map;
+  }, [sniperCrm]);
+
   // Custo total
   const totalGasto = useMemo(() => {
     return gastos.reduce((acc, item) => {
@@ -751,6 +882,8 @@ export default function MetricasView() {
             sniperDailyByTier={sniperDailyByTier}
             sniperWdElapsed={sniperWdElapsed}
             sniperWdRemaining={sniperWdRemaining}
+            sniperBySdr={sniperBySdr}
+            sniperDailyBySdr={sniperDailyBySdr}
           />
 
           <CommissionBlock

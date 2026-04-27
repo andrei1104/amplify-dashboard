@@ -531,35 +531,32 @@ function LeadsAndTrendByFaseChart({ mainLeads, appliedFrom, appliedTo, agentMeta
 
   if (!faseDailyData.length) return <p style={{ color: "var(--text-muted)", fontSize: "0.8rem", textAlign: "center", padding: "2rem 0" }}>Sem dados no período.</p>;
 
-  const allFases = [...new Set(faseDailyData.flatMap(d => Object.keys(d.byFase || {})))];
+  // Fases presentes, ordenadas conforme o funil (FASES_ORDER define a ordem oficial)
+  const presentFases = FASES_ORDER.filter(f =>
+    faseDailyData.some(d => (d.byFase || {})[f] > 0)
+  );
 
-  const chartData = faseDailyData.map(d => ({
-    date:          d.date.slice(5).replace("-", "/"),
-    "Total Leads": d.total,
-    "Conv %":      d.total > 0 ? parseFloat(((d.converted / d.total) * 100).toFixed(1)) : null,
-    _total:        d.total,
-    ...(d.byFase || {}),
-  }));
+  // Dados do gráfico — barras somam exatamente ao total de leads do dia
+  const chartData = faseDailyData.map(d => {
+    const row = {
+      date:     d.date.slice(5).replace("-", "/"),
+      "Conv %": d.total > 0 ? parseFloat(((d.converted / d.total) * 100).toFixed(1)) : null,
+      _total:   d.total,
+    };
+    presentFases.forEach(f => { row[f] = (d.byFase || {})[f] || 0; });
+    return row;
+  });
 
-  const BarLabel = ({ x, y, width, height, value }) => {
-    if (!value || height < 18 || width < 10) return null;
-    return (
-      <text x={x + width / 2} y={y + height / 2 + 1} textAnchor="middle" dominantBaseline="middle"
-        style={{ fontSize: height < 24 ? "0.52rem" : "0.6rem", fontWeight: 700, fill: "rgba(255,255,255,0.88)", pointerEvents: "none" }}>
-        {value}
-      </text>
-    );
-  };
-
-  const makeTopBarLabel = (faseIndex) => ({ x, y, index }) => {
-    const isTopmost = allFases.slice(faseIndex + 1).every(f => !(chartData[index]?.[f] > 0));
+  // Label só no topo da barra (mostra o total do dia, não o segmento)
+  const makeTopLabel = (faseIndex) => ({ x, y, width, index }) => {
+    const isTopmost = presentFases.slice(faseIndex + 1).every(f => !(chartData[index]?.[f] > 0));
     if (!isTopmost) return null;
     const val = chartData[index]?._total;
     if (!val) return null;
     return (
-      <text x={x + 16} y={y - 5} textAnchor="middle" dominantBaseline="auto"
-        fill="#38bdf8" stroke="rgba(0,0,0,0.85)" strokeWidth="0.5" paintOrder="stroke"
-        style={{ fontSize: "0.65rem", fontWeight: 800 }}>
+      <text x={x + width / 2} y={y - 5} textAnchor="middle"
+        fill="rgba(255,255,255,0.75)" stroke="rgba(0,0,0,0.7)" strokeWidth="0.4" paintOrder="stroke"
+        style={{ fontSize: "0.62rem", fontWeight: 700 }}>
         {val}
       </text>
     );
@@ -570,7 +567,6 @@ function LeadsAndTrendByFaseChart({ mainLeads, appliedFrom, appliedTo, agentMeta
     return <text x={x} y={y - 8} textAnchor="middle" style={{ fontSize: "0.58rem", fontWeight: 700, fill: color }}>{value}</text>;
   };
 
-  // SDR filter buttons
   const sdrOptions = [
     { key: "Todos", label: "Todos", color: "#a78bfa" },
     ...allSdrs.map(s => ({ key: s, label: agentMeta[s]?.displayName || s.split(" ")[0], color: agentMeta[s]?.color || "#64748b" })),
@@ -596,52 +592,48 @@ function LeadsAndTrendByFaseChart({ mainLeads, appliedFrom, appliedTo, agentMeta
 
       {/* Legenda de fases */}
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px", alignItems: "center" }}>
-        {allFases.map(f => (
+        {presentFases.map(f => (
           <div key={f} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
             <div style={{ width: 10, height: 10, borderRadius: 2, background: getFaseColor(f) }} />
             <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{f}</span>
           </div>
         ))}
         <div style={{ display: "flex", alignItems: "center", gap: "4px", marginLeft: "6px" }}>
-          <svg width="16" height="10"><line x1="0" y1="5" x2="16" y2="5" stroke="#38bdf8" strokeWidth="2.5" /></svg>
-          <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>Total Leads</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           <svg width="16" height="10"><line x1="0" y1="5" x2="16" y2="5" stroke="#c026d3" strokeWidth="2" strokeDasharray="4 2" /></svg>
           <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>Conv %</span>
         </div>
       </div>
 
+      {/* Gráfico — eixo único para barras; conv% no eixo direito */}
       <ResponsiveContainer width="100%" height={300}>
-        <ComposedChart data={chartData} margin={{ top: 22, right: 40, bottom: 5, left: -10 }}>
+        <ComposedChart data={chartData} margin={{ top: 20, right: 45, bottom: 5, left: -10 }}>
           <CartesianGrid {...RC_GRID} vertical={false} />
           <XAxis dataKey="date" tick={RC_AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis yAxisId="left"  tick={RC_AXIS} axisLine={false} tickLine={false} domain={[0, dataMax => dataMax * 1.15]} />
-          <YAxis yAxisId="pct"   orientation="right" tick={{ ...RC_AXIS, fill: "#c026d3" }}
+          <YAxis yAxisId="left" tick={RC_AXIS} axisLine={false} tickLine={false}
+            domain={[0, dataMax => Math.ceil(dataMax * 1.18) || 1]} />
+          <YAxis yAxisId="pct" orientation="right" tick={{ ...RC_AXIS, fill: "#c026d3" }}
             axisLine={false} tickLine={false} domain={[0, 100]} tickFormatter={v => `${v}%`} />
-          <YAxis yAxisId="leads" hide={true} domain={[0, "auto"]} />
           <Tooltip
             {...RC_TOOLTIP}
-            formatter={(value, name) => name === "Conv %" ? [`${value}%`, name] : [value, name]}
+            formatter={(value, name) => {
+              if (name === "Conv %") return [`${value}%`, name];
+              if (name.startsWith("_")) return null;
+              return [value, name];
+            }}
             labelFormatter={label => `📅 ${label}`}
           />
-          {allFases.map((f, i) => (
+          {presentFases.map((f, i) => (
             <Bar key={f} yAxisId="left" dataKey={f} stackId="stack" name={f}
-              fill={getFaseColor(f)} maxBarSize={32}
-              radius={i === allFases.length - 1 ? [3,3,0,0] : [0,0,0,0]}>
-              <LabelList content={BarLabel} />
-              <LabelList content={makeTopBarLabel(i)} />
+              fill={getFaseColor(f)} maxBarSize={36}
+              radius={i === presentFases.length - 1 ? [3,3,0,0] : [0,0,0,0]}>
+              <LabelList content={makeTopLabel(i)} />
             </Bar>
           ))}
-          <Line yAxisId="leads" type="monotone" dataKey="Total Leads"
-            stroke="#38bdf8" strokeWidth={2.5}
-            dot={{ fill: "#38bdf8", r: 3.5, strokeWidth: 0 }} connectNulls={false}>
-            <LabelList dataKey="Total Leads" position="top" content={({ x, y, value }) => <LineLabel x={x} y={y} value={value} color="#38bdf8" />} />
-          </Line>
           <Line yAxisId="pct" type="monotone" dataKey="Conv %"
             stroke="#c026d3" strokeWidth={2.5} strokeDasharray="5 3"
             dot={{ fill: "#c026d3", r: 3, strokeWidth: 0 }} connectNulls={false}>
-            <LabelList dataKey="Conv %" position="top" content={({ x, y, value }) => <LineLabel x={x} y={y} value={value != null ? `${value}%` : null} color="#c026d3" />} />
+            <LabelList dataKey="Conv %" position="top"
+              content={({ x, y, value }) => <LineLabel x={x} y={y} value={value != null ? `${value}%` : null} color="#c026d3" />} />
           </Line>
         </ComposedChart>
       </ResponsiveContainer>

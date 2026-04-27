@@ -1,10 +1,12 @@
 const notionSecret = process.env.NOTION_SECRET;
 
 // ─── CRM Sniper — um banco por SDR ───────────────────────────────────────────
-// IDs extraídos do Plano Tático Q2 2026 (página do Notion)
+// IDs verificados diretamente nas URLs do Notion (Abril/2026)
+// Nicole: https://www.notion.so/amplifyugc/9c96a3132cb34e0cbcac9c020c9f5dfa
+// Bruno:  página https://...349b0bbef153803daeb1c37fb76cbe43 → DB inline 344b0bbef153803d9fe9f956e2f67f20
 const SNIPER_DBS = [
-  { sdr: "Nicole Freitas", dbId: "345b0bbef1538163b153ca48b4631549" },
-  { sdr: "Bruno Zardo",    dbId: "345b0bbef15381edb961d5f0d82b656c" },
+  { sdr: "Nicole Freitas", dbId: "9c96a3132cb34e0cbcac9c020c9f5dfa" },
+  { sdr: "Bruno Zardo",    dbId: "344b0bbef153803d9fe9f956e2f67f20" },
 ];
 
 // ─── Helper: busca paginada ───────────────────────────────────────────────────
@@ -61,7 +63,7 @@ export async function GET(request) {
   // Filtro base: Status = Fechado (deal fechado / agenciado)
   const statusFilter = { property: "Status", status: { equals: "Fechado" } };
 
-  // Filtro de data: usa created_time como proxy de quando o deal foi registrado
+  // Filtro de data: usa created_time (quando o registro foi criado no CRM)
   const dateFilter = from && to
     ? {
         and: [
@@ -87,23 +89,25 @@ export async function GET(request) {
           seenIds.add(r.id);
 
           const props = r.properties || {};
+          // Converte ISO timestamp para data local no fuso do usuário
+          const toLocalDate = (s) => {
+            if (!s) return null;
+            const d = new Date(s);
+            if (isNaN(d.getTime())) return null;
+            const sign = tz.startsWith("+") ? 1 : -1;
+            const [h, m] = tz.slice(1).split(":").map(Number);
+            return new Date(d.getTime() + sign * (h * 60 + m) * 60_000)
+              .toISOString().slice(0, 10);
+          };
+
           allData.push({
             id:        r.id,
             sdr,
             categoria: props["Categoria"]?.select?.name  || null,
             gmv:       props["GMV (R$/mês)"]?.number     ?? 0,
             status:    props["Status"]?.status?.name     || null,
-            // created_time é ISO 8601 com fuso — fatia só a data local
-            date: (() => {
-              const s = r.created_time;
-              if (!s) return null;
-              const d = new Date(s);
-              if (isNaN(d.getTime())) return null;
-              const sign = tz.startsWith("+") ? 1 : -1;
-              const [h, m] = tz.slice(1).split(":").map(Number);
-              return new Date(d.getTime() + sign * (h * 60 + m) * 60_000)
-                .toISOString().slice(0, 10);
-            })(),
+            // created_time = quando o registro foi criado no CRM
+            date:      toLocalDate(r.created_time),
           });
         });
       } catch (err) {
