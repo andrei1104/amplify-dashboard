@@ -219,7 +219,7 @@ export default function CustosView() {
   // Conversões: leads do período (primeiro contato no range) que já foram convertidos
   const convertedLeads  = filteredLeads.filter(l => isConverted(l.fase));
   const totalConverted  = convertedLeads.length;
-  const totalAgenciado  = filteredLeads.filter(l => l.fase === "Agenciado").length;
+  const totalAgenciado  = filteredLeads.filter(l => isConverted(l.fase)).length;
   const totalAllLeads   = filteredLeads.length;
 
   // CPL = custo efetivo do período ÷ total de leads captados no período

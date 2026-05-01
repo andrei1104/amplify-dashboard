@@ -55,7 +55,7 @@ export default function SdrTable({ sdrStats = [], maxTotal = 1 }) {
   );
 
   const totalConvRate = totalRow.total > 0
-    ? ((totalRow.agenciados / totalRow.total) * 100).toFixed(1)
+    ? (((totalRow.agenciados + totalRow.conviteAceito) / totalRow.total) * 100).toFixed(1)
     : "0.0";
 
   return (
@@ -80,7 +80,7 @@ export default function SdrTable({ sdrStats = [], maxTotal = 1 }) {
           <tbody>
             {sdrStats.map((sdr) => {
               const meta     = getAgentMeta(sdr.name);
-              const rate     = sdr.total > 0 ? ((sdr.agenciados / sdr.total) * 100).toFixed(1) : "0.0";
+              const rate     = sdr.total > 0 ? (((sdr.agenciados + sdr.conviteAceito) / sdr.total) * 100).toFixed(1) : "0.0";
               const barWidth = maxTotal > 0 ? (sdr.total / maxTotal) * 100 : 0;
 
               return (

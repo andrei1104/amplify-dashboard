@@ -424,7 +424,8 @@ function LeadsAndTrendBySdrChart({ dailyData, agentMeta, humanSdrs, filterSdr, d
   const makeTopBarLabel = (sdrIndex) => ({ x, y, width, height, index }) => {
     const isTopmost = sdrs.slice(sdrIndex + 1).every(s => !(chartData[index]?.[s] > 0));
     if (!isTopmost) return null;
-    const val = chartData[index]?._agenciados;
+    // Soma só os SDRs visíveis (exclui IA que não aparece como barra)
+    const val = sdrs.reduce((sum, s) => sum + (chartData[index]?.[s] || 0), 0);
     if (!val) return null;
     return (
       <text x={x + width / 2} y={y - 5} textAnchor="middle" dominantBaseline="auto"
@@ -1310,10 +1311,10 @@ export default function AnaliseView({
       dayLeads.forEach(l => {
         const o = l.origem || "Sem origem";
         byOrigin[o] = (byOrigin[o] || 0) + 1;
-        if (l.fase === "Agenciado") byOriginAgenciados[o] = (byOriginAgenciados[o] || 0) + 1;
-        if (l.fase === "Agenciado" && l.sdr) bySdrAgenciados[l.sdr] = (bySdrAgenciados[l.sdr] || 0) + 1;
+        if (isConverted(l.fase)) byOriginAgenciados[o] = (byOriginAgenciados[o] || 0) + 1;
+        if (isConverted(l.fase) && l.sdr) bySdrAgenciados[l.sdr] = (bySdrAgenciados[l.sdr] || 0) + 1;
       });
-      days.push({ date: ds, total: dayLeads.length, converted: dayLeads.filter(l => isConverted(l.fase)).length, agenciados: dayLeads.filter(l => l.fase === "Agenciado").length, byOrigin, byOriginAgenciados, bySdrAgenciados });
+      days.push({ date: ds, total: dayLeads.length, converted: dayLeads.filter(l => isConverted(l.fase)).length, agenciados: dayLeads.filter(l => isConverted(l.fase)).length, byOrigin, byOriginAgenciados, bySdrAgenciados });
       cur.setDate(cur.getDate() + 1);
     }
     return days;
@@ -1324,7 +1325,7 @@ export default function AnaliseView({
     const converted = sLeads.filter(l => isConverted(l.fase)).length;
     const lost      = sLeads.filter(l => LOSS_PHASES.includes(l.fase)).length;
     const qualif    = sLeads.filter(l => l.fase?.toLowerCase().includes("qualificado")).length;
-    const agenciados= sLeads.filter(l => l.fase === "Agenciado").length;
+    const agenciados= sLeads.filter(l => isConverted(l.fase)).length;
     const convite   = sLeads.filter(l => l.fase === "Convite Enviado").length;
     const total     = sLeads.length;
     const convRate  = total > 0 ? (converted / total) * 100 : 0;
@@ -1359,7 +1360,7 @@ export default function AnaliseView({
 
   const heatmapAgenciados = useMemo(() => {
     const map = {};
-    mainLeads.forEach(l => { if (l.date && l.fase === "Agenciado") map[l.date] = (map[l.date] || 0) + 1; });
+    mainLeads.forEach(l => { if (l.date && isConverted(l.fase)) map[l.date] = (map[l.date] || 0) + 1; });
     return map;
   }, [mainLeads]);
 
@@ -1387,7 +1388,7 @@ export default function AnaliseView({
       HUMAN_SDRS.forEach(sdr => {
         const sdrLeads = mainLeads.filter(l => l.date === d.date && l.sdr === sdr);
         entry[`${sdr}_leads`] = sdrLeads.length;
-        entry[`${sdr}_ag`]    = sdrLeads.filter(l => l.fase === "Agenciado").length;
+        entry[`${sdr}_ag`]    = sdrLeads.filter(l => isConverted(l.fase)).length;
       });
       return entry;
     });
@@ -1615,7 +1616,7 @@ export default function AnaliseView({
             {[
               { label: "Total Leads",        value: totalLeads,     color: "#3b82f6", sub: periodLabel },
               { label: "Convertidos",        value: totalConverted, color: "#a78bfa", sub: `🏆 ${totalAgenciado} ag. · 🤝 ${totalConviteAc} convites` },
-              { label: "Taxa de Conversão",  value: `${convRate}%`, color: "#10b981", sub: "Agenciado + Convite Aceito" },
+              { label: "Taxa de Conversão",  value: `${convRate}%`, color: "#10b981", sub: `🏆 ${totalAgenciado} ag. · 🤝 ${totalConviteAc} conv. aceitos` },
             ].map(k => (
               <div key={k.label} className="glass-panel p-5" style={{ borderTop: `3px solid ${k.color}` }}>
                 <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>{k.label}</p>
