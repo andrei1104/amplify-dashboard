@@ -338,7 +338,7 @@ function SdrConversionChart({ sdrStats, meta, selectedSdr, onSdrClick }) {
   const handleClick = (data) => {
     if (!onSdrClick || !data?.activePayload?.[0]) return;
     const raw = data.activePayload[0].payload.rawName;
-    onSdrClick(prev => prev === raw ? "Todos" : raw);
+    onSdrClick(prev => prev.includes(raw) ? prev.filter(s => s !== raw) : [...prev, raw]);
   };
 
   return (
@@ -356,20 +356,22 @@ function SdrConversionChart({ sdrStats, meta, selectedSdr, onSdrClick }) {
           {/* fill no Bar define a cor do ícone na legenda; Cell sobrescreve o fill real */}
           <Bar dataKey="Leads" fill="#64748b" maxBarSize={36} radius={[3,3,0,0]}>
             {chartData.map((e, i) => (
-              <Cell key={i} fill={e.color} fillOpacity={selectedSdr && selectedSdr !== "Todos" && selectedSdr !== e.rawName ? 0.15 : 0.4} />
+              <Cell key={i} fill={e.color} fillOpacity={selectedSdr.length > 0 && !selectedSdr.includes(e.rawName) ? 0.15 : 0.4} />
             ))}
           </Bar>
           <Bar dataKey="Convertidos" fill="#10b981" maxBarSize={36} radius={[3,3,0,0]}>
             {chartData.map((e, i) => (
-              <Cell key={i} fill={e.color} fillOpacity={selectedSdr && selectedSdr !== "Todos" && selectedSdr !== e.rawName ? 0.2 : 1} />
+              <Cell key={i} fill={e.color} fillOpacity={selectedSdr.length > 0 && !selectedSdr.includes(e.rawName) ? 0.2 : 1} />
             ))}
           </Bar>
         </BarChart>
       </ResponsiveContainer>
-      {selectedSdr && selectedSdr !== "Todos" && (
+      {selectedSdr.length > 0 && (
         <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "4px" }}>
-          Filtrado: <strong style={{ color: meta[selectedSdr]?.color || "#a78bfa" }}>{meta[selectedSdr]?.displayName || selectedSdr}</strong>
-          {" · "}<span style={{ cursor: "pointer", color: "#a78bfa", textDecoration: "underline" }} onClick={() => onSdrClick?.(() => "Todos")}>limpar</span>
+          Filtrado: {selectedSdr.map(s => (
+            <strong key={s} style={{ color: meta[s]?.color || "#a78bfa", marginRight: "6px" }}>{meta[s]?.displayName || s}</strong>
+          ))}
+          {" · "}<span style={{ cursor: "pointer", color: "#a78bfa", textDecoration: "underline" }} onClick={() => onSdrClick?.([])}>limpar</span>
         </p>
       )}
     </>
@@ -1119,11 +1121,11 @@ function KanbanFunnel({ funnelData, funnelView, activeFunnelSdrs, selectedSdr, o
                         const cnt      = bySdr[sdr] || 0;
                         const segH     = total > 0 ? (cnt / total) * barH : 0;
                         const sdrColor = AGENT_META[sdr]?.color || "#64748b";
-                        const active   = selectedSdr === "Todos" || selectedSdr === sdr;
+                        const active   = selectedSdr.length === 0 || selectedSdr.includes(sdr);
                         return cnt > 0 ? (
                           <div key={sdr}
                             style={{ width: "100%", height: `${segH}px`, background: sdrColor, flexShrink: 0, opacity: active ? 1 : 0.15, cursor: "pointer", transition: "opacity 0.15s" }}
-                            onClick={e => { e.stopPropagation(); onSdrClick(prev => prev === sdr ? "Todos" : sdr); }}
+                            onClick={e => { e.stopPropagation(); onSdrClick(prev => prev.includes(sdr) ? prev.filter(s => s !== sdr) : [...prev, sdr]); }}
                           />
                         ) : null;
                       })}
@@ -1131,7 +1133,7 @@ function KanbanFunnel({ funnelData, funnelView, activeFunnelSdrs, selectedSdr, o
                   ) : (
                     <div style={{
                       width: "100%", height: `${barH}px`, background: color,
-                      opacity: selectedSdr !== "Todos" ? (bySdr[selectedSdr] || 0) > 0 ? 0.95 : 0.2 : 0.85,
+                      opacity: selectedSdr.length > 0 ? selectedSdr.some(s => (bySdr[s] || 0) > 0) ? 0.95 : 0.2 : 0.85,
                       borderRadius: "0 0 8px 8px", transition: "all 0.3s ease",
                     }} />
                   )}
@@ -1173,7 +1175,7 @@ export default function AnaliseView({
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [selectedSdr,    setSelectedSdr]    = useState("Todos");
+  const [selectedSdr,    setSelectedSdr]    = useState([]);
   const [selectedOrigem, setSelectedOrigem] = useState("Todos");
 
   // ─── Fetch ─────────────────────────────────────────────────
@@ -1251,7 +1253,7 @@ export default function AnaliseView({
 
   // Filtrado só por SDR (usado para listar origens disponíveis)
   const sdrFilteredLeads = useMemo(() =>
-    selectedSdr === "Todos" ? allLeads : allLeads.filter(l => l.sdr === selectedSdr),
+    selectedSdr.length === 0 ? allLeads : allLeads.filter(l => selectedSdr.includes(l.sdr)),
   [allLeads, selectedSdr]);
 
   // Origens disponíveis para o SDR selecionado
@@ -1531,7 +1533,7 @@ export default function AnaliseView({
           {["Todos", ...MAIN_SDRS].map(sdr => {
             const meta    = AGENT_META[sdr];
             const label   = meta?.displayName || sdr;
-            const isActive = selectedSdr === sdr;
+            const isActive = sdr === "Todos" ? selectedSdr.length === 0 : selectedSdr.includes(sdr);
             const color   = meta?.color || "#7c3aed";
             const count   = sdr === "Todos"
               ? allLeads.length
@@ -1541,7 +1543,17 @@ export default function AnaliseView({
                 key={sdr}
                 className={`origin-chip ${isActive ? "origin-chip--active" : ""}`}
                 style={isActive && sdr !== "Todos" ? { borderColor: color + "80", color } : {}}
-                onClick={() => { setSelectedSdr(sdr); setSelectedOrigem("Todos"); }}
+                onClick={() => {
+                  if (sdr === "Todos") {
+                    setSelectedSdr([]);
+                  } else {
+                    setSelectedSdr(prev => {
+                      const next = prev.includes(sdr) ? prev.filter(s => s !== sdr) : [...prev, sdr];
+                      return next;
+                    });
+                  }
+                  setSelectedOrigem("Todos");
+                }}
               >
                 {sdr === "Todos" ? "Todos" : label}
                 <span style={{ marginLeft: "3px", fontWeight: 700, fontSize: "0.7rem" }}>({count})</span>
