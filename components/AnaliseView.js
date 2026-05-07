@@ -108,7 +108,8 @@ function LeadsAndTrendChart({ dailyData, originColors, selectedOrigem, onOriginC
   const legendItems = [
     ...allOrigins.map(o => ({ label: o, color: originColors[o] || "#7c3aed", type: "bar", origin: o })),
     { label: "Total Leads", color: "#38bdf8", type: "line" },
-    { label: "Conv %",      color: "#c026d3", type: "dash" },
+    { label: "Conv %",      color: "#c026d3", type: "pct" },
+    { label: "Ag.",         color: "#10b981", type: "pct" },
   ];
 
   // Renderizador de label dentro das barras — só mostra se segmento ≥ 12 px de altura
@@ -128,29 +129,35 @@ function LeadsAndTrendChart({ dailyData, originColors, selectedOrigem, onOriginC
     );
   };
 
-  // Label no topo: só renderiza no segmento mais alto do dia (ignora origens seguintes com valor 0)
+  // Label no topo: Conv % (roxo) + agenciados (verde) acima da barra
   const makeTopBarLabel = (originIndex) => ({ x, y, width, height, index }) => {
-    // Verifica se todas as origens DEPOIS desta têm valor 0 para este dia
     const isTopmost = allOrigins.slice(originIndex + 1).every(
       o => !(chartData[index]?.[o] > 0)
     );
     if (!isTopmost) return null;
-    const val = chartData[index]?._agenciados;
-    if (!val) return null;
+    const ag  = chartData[index]?._agenciados;
+    const tot = chartData[index]?.["Total Leads"] ?? chartData[index]?._total;
+    const convPct = (ag != null && tot != null && tot > 0)
+      ? `${((ag / tot) * 100).toFixed(1)}%`
+      : null;
+    if (!ag && !convPct) return null;
     return (
-      <text
-        x={x + width / 2}
-        y={y - 5}
-        textAnchor="middle"
-        dominantBaseline="auto"
-        fill="#10b981"
-        stroke="rgba(0,0,0,0.85)"
-        strokeWidth="0.5"
-        paintOrder="stroke"
-        style={{ fontSize: "0.65rem", fontWeight: 800 }}
-      >
-        {val}
-      </text>
+      <g>
+        {convPct && (
+          <text x={x + width / 2} y={y - 18} textAnchor="middle" dominantBaseline="auto"
+            fill="#c026d3" stroke="rgba(0,0,0,0.8)" strokeWidth="0.4" paintOrder="stroke"
+            style={{ fontSize: "0.6rem", fontWeight: 700 }}>
+            {convPct}
+          </text>
+        )}
+        {ag != null && ag > 0 && (
+          <text x={x + width / 2} y={y - 4} textAnchor="middle" dominantBaseline="auto"
+            fill="#10b981" stroke="rgba(0,0,0,0.85)" strokeWidth="0.5" paintOrder="stroke"
+            style={{ fontSize: "0.65rem", fontWeight: 800 }}>
+            {ag}
+          </text>
+        )}
+      </g>
     );
   };
 
@@ -195,8 +202,8 @@ function LeadsAndTrendChart({ dailyData, originColors, selectedOrigem, onOriginC
               {item.type === "line" && (
                 <svg width="16" height="10"><line x1="0" y1="5" x2="16" y2="5" stroke={item.color} strokeWidth="2.5" /></svg>
               )}
-              {item.type === "dash" && (
-                <svg width="16" height="10"><line x1="0" y1="5" x2="16" y2="5" stroke={item.color} strokeWidth="2" strokeDasharray="4 2" /></svg>
+              {item.type === "pct" && (
+                <span style={{ fontSize: "0.68rem", fontWeight: 800, color: item.color }}>Aa</span>
               )}
               <span style={{ fontSize: "0.68rem", color: isSelected ? item.color : "var(--text-muted)", fontWeight: isSelected ? 700 : 400 }}>
                 {item.label}
@@ -215,16 +222,12 @@ function LeadsAndTrendChart({ dailyData, originColors, selectedOrigem, onOriginC
 
       {/* Gráfico único: barras = agenciados por origem (eixo esq) + linhas (eixo dir) */}
       <ResponsiveContainer width="100%" height={300}>
-        <ComposedChart data={chartData} margin={{ top: 22, right: 40, bottom: 5, left: -10 }}>
+        <ComposedChart data={chartData} margin={{ top: 36, right: 10, bottom: 5, left: -10 }}>
           <CartesianGrid {...RC_GRID} vertical={false} />
           <XAxis dataKey="date" tick={RC_AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
           {/* Eixo esq: agenciados (barras) — domínio ampliado para barras ficarem no terço inferior */}
           <YAxis yAxisId="left" tick={RC_AXIS} axisLine={false} tickLine={false}
             domain={[0, dataMax => dataMax * 3]} />
-          {/* Eixo dir: taxa de conversão 0–100%, visível */}
-          <YAxis yAxisId="pct" orientation="right" tick={{ ...RC_AXIS, fill: "#c026d3" }}
-            axisLine={false} tickLine={false}
-            domain={[0, 100]} tickFormatter={v => `${v}%`} />
           {/* Eixo escondido: total leads — escala normal para linha ir ao topo */}
           <YAxis yAxisId="leads" hide={true} domain={[0, "auto"]} />
           <Tooltip
@@ -256,14 +259,6 @@ function LeadsAndTrendChart({ dailyData, originColors, selectedOrigem, onOriginC
             connectNulls={false}
           >
             <LabelList dataKey="Total Leads" position="top" content={({ x, y, value }) => <LineLabel x={x} y={y} value={value} color="#38bdf8" />} />
-          </Line>
-          {/* Linha roxa = conv % (eixo 0–100% visível à direita) */}
-          <Line yAxisId="pct" type="monotone" dataKey="Conv %"
-            stroke="#c026d3" strokeWidth={2.5} strokeDasharray="5 3"
-            dot={{ fill: "#c026d3", r: 3, strokeWidth: 0 }}
-            connectNulls={false}
-          >
-            <LabelList dataKey="Conv %" position="top" content={({ x, y, value }) => <LineLabel x={x} y={y} value={value != null ? `${value}%` : null} color="#c026d3" />} />
           </Line>
         </ComposedChart>
       </ResponsiveContainer>
@@ -1155,7 +1150,7 @@ function KanbanFunnel({ funnelData, funnelView, activeFunnelSdrs, selectedSdr, o
 // ─── Componente Principal ─────────────────────────────────────
 export default function AnaliseView({
   dateField  = "Data do Primeiro contato",
-  pageTitle  = "Análise por Período",
+  pageTitle  = "Análise Entradas",
   pageSubtitle = null,   // null → usa o subtitle padrão
 }) {
   const pathname = usePathname();
@@ -1285,6 +1280,13 @@ export default function AnaliseView({
   const totalConviteAc = useMemo(() => mainLeads.filter(l => l.fase === "Convite Aceito").length,   [mainLeads]);
   const totalQualif    = useMemo(() => mainLeads.filter(l => l.fase?.toLowerCase().includes("qualificado")).length, [mainLeads]);
   const convRate       = totalLeads > 0 ? ((totalConverted / totalLeads) * 100).toFixed(1) : "0.0";
+
+  const numDays  = useMemo(() => {
+    if (!appliedFrom || !appliedTo) return 1;
+    const diff = Math.round((new Date(appliedTo + "T12:00:00") - new Date(appliedFrom + "T12:00:00")) / 86400000) + 1;
+    return Math.max(1, diff);
+  }, [appliedFrom, appliedTo]);
+  const avgDaily = numDays > 0 ? (totalConverted / numDays).toFixed(1) : "0.0";
 
   const originBreakdown = useMemo(() => {
     const map = {};
@@ -1629,6 +1631,7 @@ export default function AnaliseView({
               { label: "Total Leads",        value: totalLeads,     color: "#3b82f6", sub: periodLabel },
               { label: "Convertidos",        value: totalConverted, color: "#a78bfa", sub: `🏆 ${totalAgenciado} ag. · 🤝 ${totalConviteAc} convites` },
               { label: "Taxa de Conversão",  value: `${convRate}%`, color: "#10b981", sub: `🏆 ${totalAgenciado} ag. · 🤝 ${totalConviteAc} conv. aceitos` },
+              { label: "Média Diária",       value: avgDaily,       color: "#f97316", sub: `${totalConverted} conv. ÷ ${numDays} dias` },
             ].map(k => (
               <div key={k.label} className="glass-panel p-5" style={{ borderTop: `3px solid ${k.color}` }}>
                 <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>{k.label}</p>
