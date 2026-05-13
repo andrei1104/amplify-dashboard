@@ -101,6 +101,7 @@ export async function GET(request) {
         categoria,
         followers,
         date,
+        huggyDate,   // null se não preenchido — usado para filtrar por período no cliente
       };
     });
 

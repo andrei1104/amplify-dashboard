@@ -1049,6 +1049,7 @@ export default function MetricasView() {
   const [leads,           setLeads]           = useState([]);
   const [gastos,          setGastos]          = useState([]);
   const [sniperCrm,       setSniperCrm]       = useState([]);
+  const [sniperError,     setSniperError]     = useState(null);
   const [contratosByDate, setContratosByDate]  = useState({});
   const [contratosTotals, setContratosTotals]  = useState(null);
   const [contratosLoading,setContratosLoading] = useState(true);
@@ -1086,7 +1087,13 @@ export default function MetricasView() {
       if (gj.error) throw new Error(gj.error);
       setLeads(lj.data     || []);
       setGastos(gj.data    || []);
-      setSniperCrm(sj.data || []);
+      if (sj.error) {
+        setSniperError(sj.error);
+        setSniperCrm([]);
+      } else {
+        setSniperError(null);
+        setSniperCrm(sj.data || []);
+      }
     })
     .catch(e => setError(e.message))
     .finally(() => setLoading(false));
@@ -1133,13 +1140,25 @@ export default function MetricasView() {
   }, [startLeads.length, workingDaysRemaining, target]);
 
   // ─── Processamento — CRM Sniper (Leads Outbound DB) ─────────────────────
-  // A API busca todos os registros; filtramos aqui pelo período selecionado
-  // usando r.date (que prefere "Data do primeiro Huggy" → created_time).
-  const filteredSniperCrm = useMemo(() =>
-    sniperCrm.filter(r => r.date && r.date >= appliedFrom && r.date <= appliedTo),
-  [sniperCrm, appliedFrom, appliedTo]);
+  // A API retorna TODOS os registros sem filtro de data.
+  //
+  // • Para funil/categoria/responsável: usa sniperCrm inteiro (estado atual de todos os leads)
+  // • Para metas mensais (agenciados no período): filtra por huggyDate quando disponível;
+  //   se huggyDate for null, o lead não conta para a meta do mês (evita distorção por created_time antigo)
 
-  // Leads agenciados = status AGENCIADO ou Convite Aceito (para metas)
+  const filteredSniperCrm = useMemo(() => {
+    if (!sniperCrm.length) return [];
+    // Verifica se alguma entrada tem huggyDate (campo preenchido intencionalmente)
+    const anyHasHuggyDate = sniperCrm.some(r => r.huggyDate);
+    if (anyHasHuggyDate) {
+      // Filtra apenas por huggyDate — entradas sem huggyDate ficam de fora da contagem mensal
+      return sniperCrm.filter(r => r.huggyDate && r.huggyDate >= appliedFrom && r.huggyDate <= appliedTo);
+    }
+    // Fallback: nenhum tem huggyDate → usa created_time mas com janela ampla (desde início Q2)
+    return sniperCrm.filter(r => r.date && r.date >= appliedFrom && r.date <= appliedTo);
+  }, [sniperCrm, appliedFrom, appliedTo]);
+
+  // Leads agenciados no período (metas mensais)
   const sniperAgenciados = useMemo(() =>
     filteredSniperCrm.filter(r => {
       const s = (r.status || "").toUpperCase();
@@ -1147,10 +1166,11 @@ export default function MetricasView() {
     }),
   [filteredSniperCrm]);
 
+  // ── Dados para exibição do funil/leads (TODOS os leads, sem filtro de período) ──
   // Por responsável: total chamados, agenciados, por categoria, daily map
   const sniperByResp = useMemo(() => {
     const map = {};
-    filteredSniperCrm.forEach(r => {
+    sniperCrm.forEach(r => {
       const resp = r.responsavel || "Sem responsável";
       if (!map[resp]) map[resp] = { total:0, agenciados:0, byCategoria:{}, byStatus:{}, daily:{} };
       const m = map[resp];
@@ -1165,20 +1185,20 @@ export default function MetricasView() {
     return map;
   }, [sniperCrm]);
 
-  // Geral por status (funil)
+  // Geral por status (funil) — todos os leads
   const sniperByStatus = useMemo(() => {
     const map = {};
-    filteredSniperCrm.forEach(r => {
+    sniperCrm.forEach(r => {
       const s = r.status || "—";
       map[s] = (map[s] || 0) + 1;
     });
     return map;
-  }, [filteredSniperCrm]);
+  }, [sniperCrm]);
 
-  // Geral por categoria
+  // Geral por categoria — todos os leads
   const sniperByCategoria = useMemo(() => {
     const map = {};
-    filteredSniperCrm.forEach(r => {
+    sniperCrm.forEach(r => {
       const c = r.categoria || "Sem categoria";
       if (!map[c]) map[c] = { total:0, agenciados:0 };
       map[c].total++;
@@ -1186,15 +1206,14 @@ export default function MetricasView() {
       if (s === "AGENCIADO" || s === "CONVITE ACEITO") map[c].agenciados++;
     });
     return map;
-  }, [filteredSniperCrm]);
+  }, [sniperCrm]);
 
-  // Compatibilidade com SniperBlock existente (por tier = categoria)
+  // Compatibilidade com SniperBlock (metas por tier) — usa agenciados do período
   const sniperBySdr = useMemo(() => {
     const map = {};
     SNIPER_SDRS.forEach(sdr => {
       map[sdr] = { total:0, silver:0, gold:0, diamond:0, safira:0 };
     });
-    // Mapeia responsavel → sdr (match por primeiro nome)
     sniperAgenciados.forEach(r => {
       const resp = r.responsavel || "";
       const sdr  = SNIPER_SDRS.find(s => s.toLowerCase().startsWith(resp.split(" ")[0].toLowerCase())) || resp;
@@ -1225,10 +1244,10 @@ export default function MetricasView() {
     return map;
   }, [sniperAgenciados]);
 
-  // Contagem diária por responsável (para ritmo individual)
+  // Contagem diária por responsável — todos os leads (para ritmo de chamadas)
   const sniperDailyBySdr = useMemo(() => {
     const map = {};
-    filteredSniperCrm.forEach(r => {
+    sniperCrm.forEach(r => {
       if (!r.date || !r.responsavel) return;
       if (!map[r.responsavel]) map[r.responsavel] = {};
       map[r.responsavel][r.date] = (map[r.responsavel][r.date] || 0) + 1;
@@ -1335,6 +1354,27 @@ export default function MetricasView() {
             wdElapsed={workingDaysElapsed.length}
           />
 
+          {sniperError && (
+            <div style={{ padding:"12px 16px", borderRadius:"10px",
+              background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.3)" }}>
+              <p style={{ fontSize:"0.78rem", color:"#ef4444", fontWeight:600 }}>
+                ⚠️ Erro ao carregar CRM Sniper: {sniperError}
+              </p>
+              <p style={{ fontSize:"0.68rem", color:"var(--text-muted)", marginTop:"4px" }}>
+                Verifique se a integração Notion tem acesso ao banco "Leads Outbound" (344b0bbef153803d9fe9f956e2f67f20).
+              </p>
+            </div>
+          )}
+
+          {!sniperError && !loading && sniperCrm.length === 0 && (
+            <div style={{ padding:"12px 16px", borderRadius:"10px",
+              background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.3)" }}>
+              <p style={{ fontSize:"0.78rem", color:"#f59e0b" }}>
+                ⚠️ CRM Sniper carregado mas sem registros. Verifique o acesso da integração ao banco de dados.
+              </p>
+            </div>
+          )}
+
           <SniperBlock
             target={target}
             sniperTotals={sniperTotals}
@@ -1346,7 +1386,7 @@ export default function MetricasView() {
           />
 
           <SniperLeadsBlock
-            sniperCrm={filteredSniperCrm}
+            sniperCrm={sniperCrm}
             sniperByResp={sniperByResp}
             sniperByStatus={sniperByStatus}
             sniperByCategoria={sniperByCategoria}
