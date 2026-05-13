@@ -1,18 +1,13 @@
 const notionSecret = process.env.NOTION_SECRET;
 
-// ─── CRM Sniper — um banco por SDR ───────────────────────────────────────────
-// IDs verificados diretamente nas URLs do Notion (Abril/2026)
-// Nicole: https://www.notion.so/amplifyugc/9c96a3132cb34e0cbcac9c020c9f5dfa
-// Bruno:  página https://...349b0bbef153803daeb1c37fb76cbe43 → DB inline 344b0bbef153803d9fe9f956e2f67f20
-const SNIPER_DBS = [
-  { sdr: "Nicole Freitas", dbId: "9c96a3132cb34e0cbcac9c020c9f5dfa" },
-  { sdr: "Bruno Zardo",    dbId: "344b0bbef153803d9fe9f956e2f67f20" },
-];
+// ─── Database Leads Outbound (Plano Sniper) ──────────────────────────────────
+// https://www.notion.so/amplifyugc/344b0bbef153803d9fe9f956e2f67f20
+const SNIPER_DB_ID = "344b0bbef153803d9fe9f956e2f67f20";
 
-// ─── Helper: busca paginada ───────────────────────────────────────────────────
+// ─── Busca paginada ───────────────────────────────────────────────────────────
 async function queryDb(dbId, filter) {
   const allResults = [];
-  let hasMore  = true;
+  let hasMore = true;
   let cursor;
 
   while (hasMore) {
@@ -25,7 +20,7 @@ async function queryDb(dbId, filter) {
     const res = await fetch(
       `https://api.notion.com/v1/databases/${dbId}/query`,
       {
-        method:  "POST",
+        method: "POST",
         headers: {
           Authorization:    `Bearer ${notionSecret}`,
           "Notion-Version": "2022-06-28",
@@ -37,7 +32,7 @@ async function queryDb(dbId, filter) {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || `Erro ao consultar DB ${dbId} (status ${res.status})`);
+      throw new Error(err.message || `Erro ao consultar DB (status ${res.status})`);
     }
 
     const data = await res.json();
@@ -47,6 +42,17 @@ async function queryDb(dbId, filter) {
   }
 
   return allResults;
+}
+
+// ─── Converte ISO timestamp para data local (fuso explícito) ─────────────────
+function toLocalDate(s, tz) {
+  if (!s) return null;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  const sign = tz.startsWith("+") ? 1 : -1;
+  const [h, m] = tz.slice(1).split(":").map(Number);
+  return new Date(d.getTime() + sign * (h * 60 + m) * 60_000)
+    .toISOString().slice(0, 10);
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
@@ -60,62 +66,64 @@ export async function GET(request) {
   const to   = url.searchParams.get("to");
   const tz   = url.searchParams.get("tz") || "-03:00";
 
-  // Filtro base: Status = Fechado (deal fechado / agenciado)
-  const statusFilter = { property: "Status", status: { equals: "Fechado" } };
-
-  // Filtro de data: usa created_time (quando o registro foi criado no CRM)
-  const dateFilter = from && to
+  // Filtro opcional por "Data do primeiro Huggy" (quando o lead foi chamado)
+  const filter = from && to
     ? {
-        and: [
-          { timestamp: "created_time", created_time: { on_or_after:  `${from}T00:00:00${tz}` } },
-          { timestamp: "created_time", created_time: { on_or_before: `${to}T23:59:59${tz}`   } },
+        or: [
+          // Lead tem data de contato no período
+          {
+            and: [
+              { property: "Data do primeiro Huggy", date: { on_or_after:  `${from}T00:00:00${tz}` } },
+              { property: "Data do primeiro Huggy", date: { on_or_before: `${to}T23:59:59${tz}`   } },
+            ],
+          },
+          // Fallback: sem data de contato → usa created_time
+          {
+            and: [
+              { property: "Data do primeiro Huggy", date: { is_empty: true } },
+              { timestamp: "created_time", created_time: { on_or_after:  `${from}T00:00:00${tz}` } },
+              { timestamp: "created_time", created_time: { on_or_before: `${to}T23:59:59${tz}`   } },
+            ],
+          },
         ],
       }
     : null;
 
-  const filter = dateFilter
-    ? { and: [statusFilter, dateFilter] }
-    : statusFilter;
+  try {
+    const results = await queryDb(SNIPER_DB_ID, filter);
 
-  const allData  = [];
-  const seenIds  = new Set();   // evita duplicatas caso os DBs sejam linked
+    const data = results.map(r => {
+      const props = r.properties || {};
 
-  await Promise.allSettled(
-    SNIPER_DBS.map(async ({ sdr, dbId }) => {
-      try {
-        const results = await queryDb(dbId, filter);
-        results.forEach(r => {
-          if (seenIds.has(r.id)) return;
-          seenIds.add(r.id);
+      // Responsável (person)
+      const responsavel = props["Responsável"]?.people?.[0]?.name || null;
 
-          const props = r.properties || {};
-          // Converte ISO timestamp para data local no fuso do usuário
-          const toLocalDate = (s) => {
-            if (!s) return null;
-            const d = new Date(s);
-            if (isNaN(d.getTime())) return null;
-            const sign = tz.startsWith("+") ? 1 : -1;
-            const [h, m] = tz.slice(1).split(":").map(Number);
-            return new Date(d.getTime() + sign * (h * 60 + m) * 60_000)
-              .toISOString().slice(0, 10);
-          };
+      // Status de contato (select)
+      const status = props["Status de contato"]?.select?.name || null;
 
-          allData.push({
-            id:        r.id,
-            sdr,
-            categoria: props["Categoria"]?.select?.name  || null,
-            gmv:       props["GMV (R$/mês)"]?.number     ?? 0,
-            status:    props["Status"]?.status?.name     || null,
-            // created_time = quando o registro foi criado no CRM
-            date:      toLocalDate(r.created_time),
-          });
-        });
-      } catch (err) {
-        console.error(`[/api/sniper] Erro ao consultar CRM de ${sdr}:`, err.message);
-        // Não interrompe — retorna os outros SDRs mesmo assim
-      }
-    })
-  );
+      // Categoria (formula → string: Silver / Gold / Diamond / ...)
+      const categoria = props["Categoria"]?.formula?.string || null;
 
-  return Response.json({ success: true, data: allData, meta: { total: allData.length } });
+      // Followers
+      const followers = props["Followers"]?.number || 0;
+
+      // Data do primeiro Huggy (date property) → fallback para created_time
+      const huggyDate = props["Data do primeiro Huggy"]?.date?.start?.slice(0, 10) || null;
+      const date = huggyDate || toLocalDate(r.created_time, tz);
+
+      return {
+        id:          r.id,
+        responsavel,
+        status,
+        categoria,
+        followers,
+        date,
+      };
+    });
+
+    return Response.json({ success: true, data, meta: { total: data.length } });
+  } catch (err) {
+    console.error("[/api/sniper] Erro:", err.message);
+    return Response.json({ error: err.message }, { status: 500 });
+  }
 }

@@ -4,6 +4,10 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV_TABS } from "@/lib/config";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend,
+} from "recharts";
 
 // ─── Metas do Plano Q2 2026 ───────────────────────────────────────────────────
 // Números extraídos do "Plano Tático Q2 2026 — Aquisição" no Notion
@@ -435,6 +439,186 @@ function SniperBlock({ target, sniperTotals, sniperDailyByTier, sniperWdElapsed,
   );
 }
 
+// ─── Bloco Sniper Leads — funil + responsável + categoria ────────────────────
+function SniperLeadsBlock({ sniperCrm, sniperByResp, sniperByStatus, sniperByCategoria, sniperDailyBySdr, wdElapsed }) {
+  if (!sniperCrm.length) return null;
+
+  const STATUS_ORDER = [
+    "NÃO CONTATADO","CONTATADO","CHAMAR NO WPP","Em progresso","Reunião Agendada",
+    "Analise de perfil agendada","Enviar Convite","Convite Enviado","Convite Aceito",
+    "AGENCIADO","Reunião Realizada","Não tem interesse","Desvinculou antes 30",
+  ];
+  const STATUS_COLOR = {
+    "NÃO CONTATADO": "#64748b", "CONTATADO": "#60a5fa", "CHAMAR NO WPP": "#f472b6",
+    "Em progresso": "#3b82f6", "Reunião Agendada": "#8b5cf6", "Analise de perfil agendada": "#a78bfa",
+    "Enviar Convite": "#ec4899", "Convite Enviado": "#eab308", "Convite Aceito": "#14b8a6",
+    "AGENCIADO": "#10b981", "Reunião Realizada": "#06b6d4", "Não tem interesse": "#ef4444",
+    "Desvinculou antes 30": "#f97316",
+  };
+  const CAT_COLOR  = { "Silver":"#94a3b8", "Gold":"#f59e0b", "Diamond":"#38bdf8", "Safira":"#e879f9" };
+  const CAT_ICON   = { "Silver":"🥈", "Gold":"🥇", "Diamond":"💎", "Safira":"💠" };
+
+  const total = sniperCrm.length;
+  const maxStatus = Math.max(1, ...Object.values(sniperByStatus));
+
+  // Moving avg últimos 5 du por responsável
+  function respAvg(resp) {
+    const last5 = wdElapsed.slice(-6, -1);
+    if (!last5.length) return 0;
+    const daily = sniperDailyBySdr?.[resp] || {};
+    return parseFloat((last5.reduce((a, d) => a + (daily[d] || 0), 0) / last5.length).toFixed(1));
+  }
+
+  const respEntries = Object.entries(sniperByResp).sort((a, b) => b[1].total - a[1].total);
+  const catEntries  = Object.entries(sniperByCategoria)
+    .filter(([c]) => c !== "Sem categoria")
+    .sort((a, b) => b[1].total - a[1].total);
+
+  return (
+    <div className="glass-panel p-6" style={{ marginTop:"0" }}>
+      <p className="section-label" style={{ marginBottom:"16px" }}>
+        📋 Leads Outbound — Funil · Responsável · Categoria
+      </p>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"20px" }}>
+
+        {/* ── Funil de Fases ── */}
+        <div>
+          <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
+            color:"var(--text-muted)", fontWeight:600, marginBottom:"12px" }}>Funil de Status</p>
+          <div style={{ display:"flex", flexDirection:"column", gap:"6px" }}>
+            {STATUS_ORDER.filter(s => sniperByStatus[s] > 0).map(s => {
+              const cnt  = sniperByStatus[s] || 0;
+              const pct  = total > 0 ? ((cnt / total) * 100).toFixed(1) : 0;
+              const barW = (cnt / maxStatus) * 100;
+              const col  = STATUS_COLOR[s] || "#64748b";
+              return (
+                <div key={s}>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"3px" }}>
+                    <span style={{ fontSize:"0.68rem", color: col, fontWeight:600 }}>{s}</span>
+                    <span style={{ fontSize:"0.68rem", color:"var(--text-secondary)" }}>
+                      {cnt} <span style={{ color:"var(--text-muted)", fontSize:"0.6rem" }}>({pct}%)</span>
+                    </span>
+                  </div>
+                  <div style={{ height:"5px", background:"rgba(255,255,255,0.06)", borderRadius:"3px" }}>
+                    <div style={{ height:"100%", width:`${barW}%`, background:col, borderRadius:"3px",
+                      transition:"width 0.4s" }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Por Categoria ── */}
+        <div>
+          <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
+            color:"var(--text-muted)", fontWeight:600, marginBottom:"12px" }}>Por Categoria</p>
+          <div style={{ display:"flex", flexDirection:"column", gap:"10px" }}>
+            {catEntries.map(([cat, d]) => {
+              const col   = CAT_COLOR[cat]  || "#a78bfa";
+              const icon  = CAT_ICON[cat]   || "📦";
+              const conv  = d.total > 0 ? ((d.agenciados / d.total) * 100).toFixed(1) : "0.0";
+              return (
+                <div key={cat} style={{ background:"rgba(255,255,255,0.02)", borderRadius:"10px",
+                  padding:"12px 14px", border:`1px solid ${col}22` }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"8px" }}>
+                    <span style={{ fontSize:"0.82rem", fontWeight:700, color:col }}>{icon} {cat}</span>
+                    <span style={{ fontSize:"0.72rem", color:"var(--text-muted)" }}>{d.total} leads</span>
+                  </div>
+                  <div style={{ display:"flex", gap:"16px" }}>
+                    <div>
+                      <p style={{ fontSize:"0.58rem", color:"var(--text-muted)", textTransform:"uppercase" }}>Agenciados</p>
+                      <p style={{ fontSize:"1.1rem", fontWeight:800, color:col, lineHeight:1 }}>{d.agenciados}</p>
+                    </div>
+                    <div>
+                      <p style={{ fontSize:"0.58rem", color:"var(--text-muted)", textTransform:"uppercase" }}>Taxa</p>
+                      <p style={{ fontSize:"1.1rem", fontWeight:800, color:"#10b981", lineHeight:1 }}>{conv}%</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Por Responsável ── */}
+      <div style={{ marginTop:"24px", paddingTop:"20px", borderTop:"1px solid rgba(255,255,255,0.07)" }}>
+        <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
+          color:"var(--text-muted)", fontWeight:600, marginBottom:"14px" }}>Por Responsável</p>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:"14px" }}>
+          {respEntries.map(([resp, d]) => {
+            const avg   = respAvg(resp);
+            const conv  = d.total > 0 ? ((d.agenciados / d.total) * 100).toFixed(1) : "0.0";
+            const initials = resp.split(" ").slice(0,2).map(w => w[0]).join("").toUpperCase();
+            const topCats = Object.entries(d.byCategoria)
+              .filter(([c]) => c !== "Sem categoria")
+              .sort((a,b) => b[1] - a[1]).slice(0,3);
+            const topStatus = Object.entries(d.byStatus).sort((a,b) => b[1] - a[1]).slice(0,5);
+
+            return (
+              <div key={resp} style={{ background:"rgba(255,255,255,0.03)", borderRadius:"12px",
+                padding:"16px", border:"1px solid rgba(255,255,255,0.08)" }}>
+                {/* Header */}
+                <div style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"14px" }}>
+                  <div style={{ width:36, height:36, borderRadius:"50%",
+                    background:"rgba(124,58,237,0.2)", border:"2px solid rgba(124,58,237,0.4)",
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:"0.75rem", fontWeight:800, color:"#a78bfa" }}>{initials}</div>
+                  <div>
+                    <p style={{ fontSize:"0.88rem", fontWeight:700, color:"var(--text-primary)", lineHeight:1 }}>
+                      {resp.split(" ")[0]}
+                    </p>
+                    <p style={{ fontSize:"0.6rem", color:"var(--text-muted)", marginTop:"2px" }}>
+                      {d.total} leads · {d.agenciados} ag. · {conv}% conv.
+                    </p>
+                  </div>
+                  <div style={{ marginLeft:"auto", textAlign:"right" }}>
+                    <p style={{ fontSize:"1.2rem", fontWeight:800, color:"#f97316", lineHeight:1 }}>{avg}/dia</p>
+                    <p style={{ fontSize:"0.58rem", color:"var(--text-muted)" }}>ritmo (5du)</p>
+                  </div>
+                </div>
+
+                {/* Categorias */}
+                {topCats.length > 0 && (
+                  <div style={{ display:"flex", gap:"6px", flexWrap:"wrap", marginBottom:"10px" }}>
+                    {topCats.map(([cat, cnt]) => (
+                      <span key={cat} style={{ fontSize:"0.62rem", fontWeight:600, padding:"2px 8px",
+                        borderRadius:"4px", background:`${CAT_COLOR[cat] || "#7c3aed"}18`,
+                        color: CAT_COLOR[cat] || "#a78bfa",
+                        border:`1px solid ${CAT_COLOR[cat] || "#7c3aed"}30` }}>
+                        {CAT_ICON[cat] || "📦"} {cat}: {cnt}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Top fases */}
+                <div style={{ display:"flex", flexDirection:"column", gap:"4px" }}>
+                  {topStatus.map(([s, cnt]) => {
+                    const col = STATUS_COLOR[s] || "#64748b";
+                    const pct = d.total > 0 ? ((cnt / d.total) * 100).toFixed(0) : 0;
+                    return (
+                      <div key={s} style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                        <span style={{ fontSize:"0.62rem", color:col }}>{s}</span>
+                        <span style={{ fontSize:"0.62rem", color:"var(--text-muted)" }}>
+                          {cnt} <span style={{ opacity:0.6 }}>({pct}%)</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Bloco 3 — Comissão por SDR ───────────────────────────────────────────────
 function CommissionBlock({ target, sniperBySdr, selectedMonth }) {
   const sdrs = SNIPER_SDRS;
@@ -644,6 +828,149 @@ function CacBlock({ totalGasto, totalConverted, cac, target, startCount, sniperC
   );
 }
 
+// ─── Bloco 5 — Renovações de Contrato ────────────────────────────────────────
+function ContratosBlock({ byDate, totals, loading }) {
+  if (loading) {
+    return (
+      <div className="glass-panel p-6">
+        <p className="section-label" style={{ marginBottom:"16px" }}>
+          📋 Bloco 5 — Renovações de Contrato (Amplify Club)
+        </p>
+        <p style={{ fontSize:"0.8rem", color:"var(--text-muted)" }}>Carregando dados da planilha…</p>
+      </div>
+    );
+  }
+
+  if (!totals || totals.total === 0) {
+    return (
+      <div className="glass-panel p-6">
+        <p className="section-label" style={{ marginBottom:"16px" }}>
+          📋 Bloco 5 — Renovações de Contrato (Amplify Club)
+        </p>
+        <p style={{ fontSize:"0.8rem", color:"var(--text-muted)" }}>
+          Nenhum dado encontrado. Verifique se a planilha está compartilhada publicamente.
+        </p>
+      </div>
+    );
+  }
+
+  // Ordena datas e monta dados para gráfico
+  const chartData = Object.entries(byDate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, d]) => ({
+      date: date.slice(5).replace("-", "/"), // MM/DD → D/M display
+      expirando: d.expirando,
+      renovados: d.renovados,
+      removidos: d.removidos,
+      pendentes: d.pendentes,
+    }));
+
+  const taxa     = parseFloat(totals.taxaReversao);
+  const taxaColor = taxa >= 60 ? "#10b981" : taxa >= 40 ? "#f59e0b" : "#ef4444";
+  const taxaIcon  = taxa >= 60 ? "✅" : taxa >= 40 ? "⚠️" : "🔴";
+
+  const kpis = [
+    { label: "Total com vencimento",  value: totals.total,      color: "var(--text-primary)", sub: "contratos na planilha" },
+    { label: "Renovados",             value: totals.renovados,  color: "#10b981",              sub: "Contrato Renovado"    },
+    { label: "Removidos / Expirados", value: totals.removidos,  color: "#ef4444",              sub: "acesso removido"      },
+    { label: "Pendentes",             value: totals.pendentes,  color: "#f59e0b",              sub: "aguardando decisão"   },
+  ];
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div style={{ background:"rgba(15,15,25,0.95)", border:"1px solid rgba(255,255,255,0.12)",
+        borderRadius:"8px", padding:"10px 14px", fontSize:"0.75rem" }}>
+        <p style={{ fontWeight:700, color:"var(--text-primary)", marginBottom:"6px" }}>📅 {label}</p>
+        {payload.map(p => (
+          <p key={p.dataKey} style={{ color: p.fill, margin:"2px 0" }}>
+            {p.name}: <strong>{p.value}</strong>
+          </p>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="glass-panel p-6">
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"20px" }}>
+        <div>
+          <p className="section-label" style={{ marginBottom:"2px" }}>
+            📋 Bloco 5 — Renovações de Contrato (Amplify Club)
+          </p>
+          <p style={{ fontSize:"0.72rem", color:"var(--text-muted)" }}>
+            Contratos expirando, renovados e taxa de reversão — dados da planilha de controle
+          </p>
+        </div>
+        {/* Taxa de Reversão em destaque */}
+        <div style={{ textAlign:"right", minWidth:"120px" }}>
+          <p style={{ fontSize:"0.6rem", textTransform:"uppercase", letterSpacing:"0.08em",
+            color:"var(--text-muted)", fontWeight:600, marginBottom:"4px" }}>
+            {taxaIcon} Taxa de Reversão
+          </p>
+          <p style={{ fontSize:"2.4rem", fontWeight:800, lineHeight:1, letterSpacing:"-0.04em",
+            color: taxaColor }}>{taxa.toFixed(1)}%</p>
+          <p style={{ fontSize:"0.6rem", color:"var(--text-muted)", marginTop:"2px" }}>
+            {totals.renovados} renov. ÷ {totals.renovados + totals.removidos} dec.
+          </p>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:"14px", marginBottom:"24px" }}>
+        {kpis.map(k => (
+          <div key={k.label} style={{ background:"rgba(255,255,255,0.03)", borderRadius:"10px",
+            padding:"14px 16px", border:"1px solid rgba(255,255,255,0.06)" }}>
+            <p style={{ fontSize:"0.6rem", textTransform:"uppercase", letterSpacing:"0.08em",
+              color:"var(--text-muted)", fontWeight:600, marginBottom:"6px" }}>{k.label}</p>
+            <p style={{ fontSize:"2rem", fontWeight:800, color:k.color, lineHeight:1,
+              letterSpacing:"-0.03em" }}>{k.value}</p>
+            <p style={{ fontSize:"0.62rem", color:"var(--text-muted)", marginTop:"4px" }}>{k.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Gráfico diário */}
+      <div>
+        <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
+          color:"var(--text-muted)", fontWeight:600, marginBottom:"14px" }}>
+          Contratos por Data de Expiração
+        </p>
+        <div style={{ width:"100%", height: Math.max(200, Math.min(320, chartData.length * 28)) }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top:8, right:16, left:0, bottom:4 }}
+              barGap={2} barCategoryGap="30%">
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="date" tick={{ fontSize:11, fill:"#94a3b8" }}
+                tickLine={false} axisLine={{ stroke:"rgba(255,255,255,0.08)" }} />
+              <YAxis allowDecimals={false} tick={{ fontSize:11, fill:"#94a3b8" }}
+                tickLine={false} axisLine={false} width={28} />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill:"rgba(255,255,255,0.04)" }} />
+              <Legend iconType="circle" iconSize={8}
+                wrapperStyle={{ fontSize:"0.7rem", paddingTop:"8px" }} />
+              <Bar dataKey="expirando" name="Expirando"  fill="#6366f1" radius={[3,3,0,0]} />
+              <Bar dataKey="renovados" name="Renovados"  fill="#10b981" radius={[3,3,0,0]} />
+              <Bar dataKey="removidos" name="Removidos"  fill="#ef4444" radius={[3,3,0,0]} />
+              <Bar dataKey="pendentes" name="Pendentes"  fill="#f59e0b" radius={[3,3,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Nota */}
+      <div style={{ marginTop:"16px", padding:"10px 14px", background:"rgba(124,58,237,0.06)",
+        borderRadius:"8px", border:"1px solid rgba(124,58,237,0.2)" }}>
+        <p style={{ fontSize:"0.68rem", color:"#a78bfa" }}>
+          ℹ️ <strong>Taxa de Reversão</strong> = contratos renovados ÷ (renovados + removidos).
+          Pendentes = sem decisão registrada ainda na planilha.
+          Dados atualizados direto da planilha Amplify Club.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function MetricasView() {
   const pathname = usePathname();
@@ -652,72 +979,118 @@ export default function MetricasView() {
   const curMonthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
   const today       = toLocalDate(now);
 
-  const [selectedMonth, setSelectedMonth] = useState(
-    Q2_TARGETS[curMonthKey] ? curMonthKey : "2026-04"
-  );
+  // ─── Seletor de período (igual aos outros dashboards) ───────────────────
+  const defaultFrom = `${curMonthKey}-01`; // 1° do mês atual
+  const [dateFrom,    setDateFrom]    = useState(defaultFrom);
+  const [dateTo,      setDateTo]      = useState(today);
+  const [appliedFrom, setAppliedFrom] = useState(defaultFrom);
+  const [appliedTo,   setAppliedTo]   = useState(today);
 
-  const target = Q2_TARGETS[selectedMonth];
-  const mEnd   = useMemo(() => monthEnd(selectedMonth), [selectedMonth]);
+  const applyFilter = () => {
+    if (!dateFrom || !dateTo) return;
+    setAppliedFrom(dateFrom);
+    setAppliedTo(dateTo);
+  };
+
+  const setPreset = (days) => {
+    const to   = new Date();
+    const from = new Date(to);
+    from.setDate(from.getDate() - (days - 1));
+    const f = toLocalDate(from), t = toLocalDate(to);
+    setDateFrom(f); setDateTo(t);
+    setAppliedFrom(f); setAppliedTo(t);
+  };
+
+  const setPresetMonth = (monthKey) => {
+    const [y, m] = monthKey.split("-").map(Number);
+    const f = `${monthKey}-01`;
+    const tObj = new Date(y, m, 0); // último dia do mês
+    const t = monthKey <= curMonthKey
+      ? (monthKey === curMonthKey ? today : toLocalDate(tObj))
+      : toLocalDate(tObj);
+    setDateFrom(f); setDateTo(t);
+    setAppliedFrom(f); setAppliedTo(t);
+  };
+
+  // ─── Detecta mês das metas pelo final do período selecionado ─────────────
+  const selectedMonth = appliedTo.slice(0, 7);
+  const target = Q2_TARGETS[selectedMonth]
+    ?? Q2_TARGETS[curMonthKey]
+    ?? Q2_TARGETS["2026-05"];
+  const mEnd = useMemo(() => monthEnd(selectedMonth), [selectedMonth]);
 
   // ─── Dias úteis — Start ───────────────────────────────────────────────────
   const workingDaysElapsed = useMemo(() => {
     const from = target.firstDay;
-    const to   = today <= mEnd ? today : mEnd;
+    const to   = appliedTo <= mEnd ? appliedTo : mEnd;
     if (from > to) return [];
     return getWorkingDays(from, to);
-  }, [selectedMonth, today]);
+  }, [selectedMonth, appliedTo, mEnd]);
 
   const workingDaysRemaining = useMemo(
-    () => calcWdRemaining(target.firstDay, today, mEnd, selectedMonth, curMonthKey),
-    [selectedMonth, today]
+    () => calcWdRemaining(target.firstDay, appliedTo, mEnd, selectedMonth, curMonthKey),
+    [selectedMonth, appliedTo, mEnd]
   );
 
   // ─── Dias úteis — Sniper ──────────────────────────────────────────────────
   const sniperWdElapsed = useMemo(() => {
     const from = target.sniperFirstDay || target.firstDay;
-    const to   = today <= mEnd ? today : mEnd;
+    const to   = appliedTo <= mEnd ? appliedTo : mEnd;
     if (from > to) return [];
     return getWorkingDays(from, to);
-  }, [selectedMonth, today]);
+  }, [selectedMonth, appliedTo, mEnd]);
 
   const sniperWdRemaining = useMemo(
-    () => calcWdRemaining(target.sniperFirstDay || target.firstDay, today, mEnd, selectedMonth, curMonthKey),
-    [selectedMonth, today]
+    () => calcWdRemaining(target.sniperFirstDay || target.firstDay, appliedTo, mEnd, selectedMonth, curMonthKey),
+    [selectedMonth, appliedTo, mEnd]
   );
 
   // ─── State ────────────────────────────────────────────────────────────────
-  const [leads,     setLeads]     = useState([]);
-  const [gastos,    setGastos]    = useState([]);
-  const [sniperCrm, setSniperCrm] = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
+  const [leads,           setLeads]           = useState([]);
+  const [gastos,          setGastos]          = useState([]);
+  const [sniperCrm,       setSniperCrm]       = useState([]);
+  const [contratosByDate, setContratosByDate]  = useState({});
+  const [contratosTotals, setContratosTotals]  = useState(null);
+  const [contratosLoading,setContratosLoading] = useState(true);
+  const [loading,         setLoading]          = useState(true);
+  const [error,           setError]            = useState(null);
+
+  // ─── Fetch contratos (independente do período) ───────────────────────────
+  useEffect(() => {
+    setContratosLoading(true);
+    fetch("/api/contratos")
+      .then(r => r.json())
+      .then(j => {
+        if (j.error) { console.warn("[contratos]", j.error); return; }
+        setContratosByDate(j.byDate  || {});
+        setContratosTotals(j.totals  || null);
+      })
+      .catch(e => console.warn("[contratos]", e.message))
+      .finally(() => setContratosLoading(false));
+  }, []);
 
   // ─── Fetch ────────────────────────────────────────────────────────────────
   useEffect(() => {
     setLoading(true);
     setError(null);
 
-    const [y, m] = selectedMonth.split("-").map(Number);
-    const from   = `${y}-${String(m).padStart(2,"0")}-01`;
-    const to     = mEnd;
-    const tz     = getBrowserTz();
-    const enc    = encodeURIComponent;
+    const tz  = getBrowserTz();
+    const enc = encodeURIComponent;
 
     Promise.all([
-      fetch(`/api/notion?from=${from}&to=${to}&dateField=${enc("Data do Primeiro contato")}&tz=${enc(tz)}`).then(r => r.json()),
-      fetch(`/api/gastos?from=${from}&to=${to}`).then(r => r.json()),
-      fetch(`/api/sniper?from=${from}&to=${to}&tz=${enc(tz)}`).then(r => r.json()),
+      fetch(`/api/notion?from=${appliedFrom}&to=${appliedTo}&dateField=${enc("Data do Primeiro contato")}&tz=${enc(tz)}`).then(r => r.json()),
+      fetch(`/api/gastos?from=${appliedFrom}&to=${appliedTo}`).then(r => r.json()),
+      fetch(`/api/sniper?from=${appliedFrom}&to=${appliedTo}&tz=${enc(tz)}`).then(r => r.json()),
     ]).then(([lj, gj, sj]) => {
       if (lj.error) throw new Error(lj.error);
       if (gj.error) throw new Error(gj.error);
-      // Sniper pode falhar parcialmente — não bloqueia
-      setLeads(lj.data      || []);
-      setGastos(gj.data     || []);
-      setSniperCrm(sj.data  || []);
+      setLeads(lj.data     || []);
+      setGastos(gj.data    || []);
+      setSniperCrm(sj.data || []);
     })
     .catch(e => setError(e.message))
     .finally(() => setLoading(false));
-  }, [selectedMonth]);
+  }, [appliedFrom, appliedTo]);
 
   // ─── Processamento — Leads (base principal) ───────────────────────────────
   const parsed = useMemo(() => leads.map(l => ({
@@ -759,49 +1132,102 @@ export default function MetricasView() {
     return parseFloat((rem / workingDaysRemaining).toFixed(1));
   }, [startLeads.length, workingDaysRemaining, target]);
 
-  // ─── Processamento — CRM Sniper ───────────────────────────────────────────
+  // ─── Processamento — CRM Sniper (Leads Outbound DB) ─────────────────────
+  // sniperCrm agora retorna: { responsavel, status, categoria, date, followers }
+
+  // Leads agenciados = status AGENCIADO ou Convite Aceito (para metas)
+  const sniperAgenciados = useMemo(() =>
+    sniperCrm.filter(r => {
+      const s = (r.status || "").toUpperCase();
+      return s === "AGENCIADO" || s === "CONVITE ACEITO";
+    }),
+  [sniperCrm]);
+
+  // Por responsável: total chamados, agenciados, por categoria, daily map
+  const sniperByResp = useMemo(() => {
+    const map = {};
+    sniperCrm.forEach(r => {
+      const resp = r.responsavel || "Sem responsável";
+      if (!map[resp]) map[resp] = { total:0, agenciados:0, byCategoria:{}, byStatus:{}, daily:{} };
+      const m = map[resp];
+      m.total++;
+      const s = (r.status || "").toUpperCase();
+      if (s === "AGENCIADO" || s === "CONVITE ACEITO") m.agenciados++;
+      const cat = r.categoria || "Sem categoria";
+      m.byCategoria[cat] = (m.byCategoria[cat] || 0) + 1;
+      m.byStatus[r.status || "—"] = (m.byStatus[r.status || "—"] || 0) + 1;
+      if (r.date) m.daily[r.date] = (m.daily[r.date] || 0) + 1;
+    });
+    return map;
+  }, [sniperCrm]);
+
+  // Geral por status (funil)
+  const sniperByStatus = useMemo(() => {
+    const map = {};
+    sniperCrm.forEach(r => {
+      const s = r.status || "—";
+      map[s] = (map[s] || 0) + 1;
+    });
+    return map;
+  }, [sniperCrm]);
+
+  // Geral por categoria
+  const sniperByCategoria = useMemo(() => {
+    const map = {};
+    sniperCrm.forEach(r => {
+      const c = r.categoria || "Sem categoria";
+      if (!map[c]) map[c] = { total:0, agenciados:0 };
+      map[c].total++;
+      const s = (r.status || "").toUpperCase();
+      if (s === "AGENCIADO" || s === "CONVITE ACEITO") map[c].agenciados++;
+    });
+    return map;
+  }, [sniperCrm]);
+
+  // Compatibilidade com SniperBlock existente (por tier = categoria)
   const sniperBySdr = useMemo(() => {
     const map = {};
     SNIPER_SDRS.forEach(sdr => {
       map[sdr] = { total:0, silver:0, gold:0, diamond:0, safira:0 };
     });
-    sniperCrm.forEach(r => {
-      const sdr = r.sdr;
-      const cat = (r.categoria || "").toLowerCase();
+    // Mapeia responsavel → sdr (match por primeiro nome)
+    sniperAgenciados.forEach(r => {
+      const resp = r.responsavel || "";
+      const sdr  = SNIPER_SDRS.find(s => s.toLowerCase().startsWith(resp.split(" ")[0].toLowerCase())) || resp;
+      const cat  = (r.categoria || "").toLowerCase();
       if (!map[sdr]) map[sdr] = { total:0, silver:0, gold:0, diamond:0, safira:0 };
       map[sdr].total++;
       if (["silver","gold","diamond","safira"].includes(cat)) map[sdr][cat]++;
     });
     return map;
-  }, [sniperCrm]);
+  }, [sniperAgenciados]);
 
   const sniperTotals = useMemo(() => ({
-    silver:  Object.values(sniperBySdr).reduce((a, v) => a + (v.silver  || 0), 0),
-    gold:    Object.values(sniperBySdr).reduce((a, v) => a + (v.gold    || 0), 0),
-    diamond: Object.values(sniperBySdr).reduce((a, v) => a + (v.diamond || 0), 0),
-    safira:  Object.values(sniperBySdr).reduce((a, v) => a + (v.safira  || 0), 0),
-    total:   Object.values(sniperBySdr).reduce((a, v) => a + (v.total   || 0), 0),
-  }), [sniperBySdr]);
+    silver:  (sniperByCategoria["Silver"]?.agenciados  || 0),
+    gold:    (sniperByCategoria["Gold"]?.agenciados    || 0),
+    diamond: (sniperByCategoria["Diamond"]?.agenciados || 0),
+    safira:  (sniperByCategoria["Safira"]?.agenciados  || 0),
+    total:   sniperAgenciados.length,
+  }), [sniperByCategoria, sniperAgenciados]);
 
   // Contagem diária por tier (para moving average do Sniper)
   const sniperDailyByTier = useMemo(() => {
     const map = { silver:{}, gold:{}, diamond:{}, safira:{} };
-    sniperCrm.forEach(r => {
+    sniperAgenciados.forEach(r => {
       if (!r.date) return;
       const cat = (r.categoria || "").toLowerCase();
       if (map[cat]) map[cat][r.date] = (map[cat][r.date] || 0) + 1;
     });
     return map;
-  }, [sniperCrm]);
+  }, [sniperAgenciados]);
 
-  // Contagem diária por SDR (independente do tier — para ritmo individual)
+  // Contagem diária por responsável (para ritmo individual)
   const sniperDailyBySdr = useMemo(() => {
     const map = {};
-    SNIPER_SDRS.forEach(sdr => { map[sdr] = {}; });
     sniperCrm.forEach(r => {
-      if (!r.date || !r.sdr) return;
-      if (!map[r.sdr]) map[r.sdr] = {};
-      map[r.sdr][r.date] = (map[r.sdr][r.date] || 0) + 1;
+      if (!r.date || !r.responsavel) return;
+      if (!map[r.responsavel]) map[r.responsavel] = {};
+      map[r.responsavel][r.date] = (map[r.responsavel][r.date] || 0) + 1;
     });
     return map;
   }, [sniperCrm]);
@@ -841,15 +1267,44 @@ export default function MetricasView() {
             Meta · Sniper · Comissão · CAC — atualizado em tempo real
           </p>
         </div>
-        {/* Seletor de mês */}
-        <div style={{ display:"flex", gap:"8px" }}>
-          {Object.entries(Q2_TARGETS).map(([key, t]) => (
-            <button key={key} onClick={() => setSelectedMonth(key)}
-              className={`origin-chip ${selectedMonth === key ? "origin-chip--active" : ""}`}>
-              {t.label.split(" ")[0]}
-            </button>
-          ))}
+      </div>
+
+      {/* Filtro de período */}
+      <div className="glass-panel p-4 mb-6 animate-fade-in"
+        style={{ display:"flex", flexDirection:"column", gap:"12px" }}>
+        <div style={{ display:"flex", gap:"12px", flexWrap:"wrap", alignItems:"flex-end" }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:"4px" }}>
+            <label style={{ fontSize:"0.68rem", color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:"0.05em" }}>DE</label>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="date-input" />
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:"4px" }}>
+            <label style={{ fontSize:"0.68rem", color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:"0.05em" }}>ATÉ</label>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="date-input" />
+          </div>
+          <button onClick={applyFilter}
+            style={{ padding:"6px 18px", borderRadius:"8px", background:"linear-gradient(135deg,#7c3aed,#5b21b6)", color:"#fff", fontSize:"0.82rem", fontWeight:600, border:"none", cursor:"pointer" }}>
+            Aplicar
+          </button>
+          <div style={{ display:"flex", gap:"6px", flexWrap:"wrap", marginLeft:"4px" }}>
+            {[{ label:"7d", days:7 }, { label:"15d", days:15 }, { label:"30d", days:30 }].map(p => (
+              <button key={p.label} onClick={() => setPreset(p.days)}
+                style={{ padding:"5px 12px", borderRadius:"6px", background:"rgba(255,255,255,0.07)", color:"var(--text-secondary)", fontSize:"0.75rem", border:"1px solid rgba(255,255,255,0.1)", cursor:"pointer" }}>
+                {p.label}
+              </button>
+            ))}
+            {Object.entries(Q2_TARGETS).map(([key, t]) => (
+              <button key={key} onClick={() => setPresetMonth(key)}
+                className={`origin-chip ${selectedMonth === key && appliedFrom === `${key}-01` ? "origin-chip--active" : ""}`}
+                style={{ fontSize:"0.75rem" }}>
+                {t.label.split(" ")[0]}
+              </button>
+            ))}
+          </div>
         </div>
+        <p style={{ fontSize:"0.68rem", color:"var(--text-muted)" }}>
+          Metas de referência: <strong style={{ color:"#a78bfa" }}>{target.label}</strong>
+          &nbsp;· período: {appliedFrom.slice(5).replace("-","/")} → {appliedTo.slice(5).replace("-","/")}
+        </p>
       </div>
 
       {loading ? (
@@ -886,6 +1341,15 @@ export default function MetricasView() {
             sniperDailyBySdr={sniperDailyBySdr}
           />
 
+          <SniperLeadsBlock
+            sniperCrm={sniperCrm}
+            sniperByResp={sniperByResp}
+            sniperByStatus={sniperByStatus}
+            sniperByCategoria={sniperByCategoria}
+            sniperDailyBySdr={sniperDailyBySdr}
+            wdElapsed={sniperWdElapsed}
+          />
+
           <CommissionBlock
             target={target}
             sniperBySdr={sniperBySdr}
@@ -899,6 +1363,12 @@ export default function MetricasView() {
             target={target}
             startCount={startLeads.length}
             sniperCount={sniperCount}
+          />
+
+          <ContratosBlock
+            byDate={contratosByDate}
+            totals={contratosTotals}
+            loading={contratosLoading}
           />
 
         </div>

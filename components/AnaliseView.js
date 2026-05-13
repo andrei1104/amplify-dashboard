@@ -1283,8 +1283,15 @@ export default function AnaliseView({
 
   const numDays  = useMemo(() => {
     if (!appliedFrom || !appliedTo) return 1;
-    const diff = Math.round((new Date(appliedTo + "T12:00:00") - new Date(appliedFrom + "T12:00:00")) / 86400000) + 1;
-    return Math.max(1, diff);
+    const cur = new Date(appliedFrom + "T12:00:00");
+    const end = new Date(appliedTo   + "T12:00:00");
+    let bizDays = 0;
+    while (cur <= end) {
+      const dow = cur.getDay(); // 0=dom, 6=sab
+      if (dow !== 0 && dow !== 6) bizDays++;
+      cur.setDate(cur.getDate() + 1);
+    }
+    return Math.max(1, bizDays);
   }, [appliedFrom, appliedTo]);
   const avgDaily = numDays > 0 ? (totalConverted / numDays).toFixed(1) : "0.0";
 
@@ -1631,7 +1638,7 @@ export default function AnaliseView({
               { label: "Total Leads",        value: totalLeads,     color: "#3b82f6", sub: periodLabel },
               { label: "Convertidos",        value: totalConverted, color: "#a78bfa", sub: `🏆 ${totalAgenciado} ag. · 🤝 ${totalConviteAc} convites` },
               { label: "Taxa de Conversão",  value: `${convRate}%`, color: "#10b981", sub: `🏆 ${totalAgenciado} ag. · 🤝 ${totalConviteAc} conv. aceitos` },
-              { label: "Média Diária",       value: avgDaily,       color: "#f97316", sub: `${totalConverted} conv. ÷ ${numDays} dias` },
+              { label: "Média Diária",       value: avgDaily,       color: "#f97316", sub: `${totalConverted} conv. ÷ ${numDays} dias úteis` },
             ].map(k => (
               <div key={k.label} className="glass-panel p-5" style={{ borderTop: `3px solid ${k.color}` }}>
                 <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>{k.label}</p>
