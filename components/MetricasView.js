@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { NAV_TABS, isConverted as isConvertedCfg } from "@/lib/config";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend,
+  ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 
 // ─── Metas do Plano Q2 2026 ───────────────────────────────────────────────────
@@ -523,20 +523,33 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
     return { resp, total:rl.length, contacted, agenciados, taxa, avg, byCat, agByCat, catRates };
   });
 
-  // Dados diários por categoria (para os gráficos) — baseados nos leads filtrados por SDR
-  const allDates = [...new Set(leads.map(r => r.date).filter(Boolean))].sort();
+  // Todos os dias do range (min → max das datas nos dados) — sem pular dias sem atividade
+  const allDatesRange = (() => {
+    const ds = leads.map(r => r.date).filter(Boolean);
+    if (!ds.length) return [];
+    const minD = ds.reduce((a, b) => a < b ? a : b);
+    const maxD = ds.reduce((a, b) => a > b ? a : b);
+    const result = [];
+    const cur = new Date(minD + "T12:00:00");
+    const end = new Date(maxD + "T12:00:00");
+    while (cur <= end) {
+      result.push(toLocalDate(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return result;
+  })();
+
+  // Dados diários por categoria (para os gráficos) — todos os dias, incluindo zeros
   const catChartData = {};
   Object.keys(CAT_META).forEach(cat => {
-    catChartData[cat] = allDates
-      .map(d => {
-        const dl = leads.filter(r => r.categoria === cat && r.date === d);
-        return {
-          date:       d.slice(5).replace("-", "/"),
-          Chamados:   dl.filter(r => r.status && r.status !== "NÃO CONTATADO").length,
-          Agenciados: dl.filter(r => isAgenciado(r.status)).length,
-        };
-      })
-      .filter(d => d.Chamados > 0 || d.Agenciados > 0);
+    catChartData[cat] = allDatesRange.map(d => {
+      const dl = leads.filter(r => r.categoria === cat && r.date === d);
+      return {
+        date:       d.slice(5).replace("-", "/"),
+        Chamados:   dl.filter(r => r.status && r.status !== "NÃO CONTATADO").length,
+        Agenciados: dl.filter(r => isAgenciado(r.status)).length,
+      };
+    });
   });
 
   return (
@@ -692,23 +705,22 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
         </div>
       )}
 
-      {/* ─── Gráficos diários por categoria ─── */}
-      {allDates.length > 0 && (
+      {/* ─── Gráficos diários por categoria (empilhados verticalmente) ─── */}
+      {allDatesRange.length > 0 && (
         <div style={{ marginTop:"24px", paddingTop:"20px", borderTop:"1px solid rgba(255,255,255,0.07)" }}>
           <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
             color:"var(--text-muted)", fontWeight:600, marginBottom:"16px" }}>
             Evolução Diária por Categoria — Chamados vs Agenciados
           </p>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:"16px" }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:"20px" }}>
             {Object.entries(CAT_META).map(([cat, meta]) => {
               const data = catChartData[cat] || [];
-              if (!data.length) return (
-                <div key={cat} style={{ background:"rgba(255,255,255,0.02)", borderRadius:"10px",
-                  padding:"14px", border:`1px solid ${meta.color}18`,
-                  display:"flex", alignItems:"center", justifyContent:"center", minHeight:"140px" }}>
-                  <p style={{ fontSize:"0.72rem", color:"var(--text-muted)" }}>{meta.icon} {cat} — sem dados</p>
-                </div>
-              );
+              const totalChamados = data.reduce((a, d) => a + d.Chamados, 0);
+              const avgChamados   = data.length > 0
+                ? parseFloat((totalChamados / data.length).toFixed(1)) : 0;
+              const avgAgenciados = data.length > 0
+                ? parseFloat((data.reduce((a,d)=>a+d.Agenciados,0)/data.length).toFixed(2)) : 0;
+
               const CustomTooltip = ({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
                 return (
@@ -716,27 +728,49 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
                     borderRadius:"6px", padding:"8px 12px", fontSize:"0.72rem" }}>
                     <p style={{ fontWeight:700, color:"var(--text-primary)", marginBottom:"4px" }}>📅 {label}</p>
                     {payload.map(p => (
-                      <p key={p.dataKey} style={{ color:p.fill, margin:"1px 0" }}>
+                      <p key={p.dataKey} style={{ color:p.fill || p.stroke, margin:"1px 0" }}>
                         {p.name}: <strong>{p.value}</strong>
                       </p>
                     ))}
+                    <p style={{ color:"#f59e0b", marginTop:"4px", borderTop:"1px solid rgba(255,255,255,0.08)", paddingTop:"4px" }}>
+                      Média chamados: <strong>{avgChamados}/dia</strong>
+                    </p>
                   </div>
                 );
               };
+
               return (
-                <div key={cat} style={{ background:"rgba(255,255,255,0.02)", borderRadius:"10px",
-                  padding:"14px", border:`1px solid ${meta.color}22` }}>
-                  <p style={{ fontSize:"0.8rem", fontWeight:700, color:meta.color, marginBottom:"10px" }}>
-                    {meta.icon} {cat}
-                  </p>
-                  <ResponsiveContainer width="100%" height={160}>
-                    <BarChart data={data} margin={{ top:4, right:4, left:-20, bottom:0 }} barGap={2} barCategoryGap="35%">
+                <div key={cat} style={{ background:"rgba(255,255,255,0.02)", borderRadius:"12px",
+                  padding:"16px", border:`1px solid ${meta.color}22` }}>
+                  {/* Header do gráfico */}
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"12px" }}>
+                    <p style={{ fontSize:"0.85rem", fontWeight:700, color:meta.color }}>
+                      {meta.icon} {cat}
+                    </p>
+                    <div style={{ display:"flex", gap:"16px", fontSize:"0.65rem" }}>
+                      <span style={{ color:"#60a5fa" }}>
+                        ■ Chamados — média: <strong>{avgChamados}/dia</strong>
+                      </span>
+                      <span style={{ color:"#10b981" }}>
+                        ■ Agenciados — média: <strong>{avgAgenciados}/dia</strong>
+                      </span>
+                      <span style={{ color:"#f59e0b" }}>
+                        ╌ Linha média chamados
+                      </span>
+                    </div>
+                  </div>
+
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={data} margin={{ top:8, right:8, left:-16, bottom:0 }}
+                      barGap={2} barCategoryGap="30%">
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize:9, fill:"#94a3b8" }}
+                      <XAxis dataKey="date" tick={{ fontSize:10, fill:"#94a3b8" }}
                         tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                      <YAxis allowDecimals={false} tick={{ fontSize:9, fill:"#94a3b8" }}
+                      <YAxis allowDecimals={false} tick={{ fontSize:10, fill:"#94a3b8" }}
                         tickLine={false} axisLine={false} />
                       <Tooltip content={<CustomTooltip />} cursor={{ fill:"rgba(255,255,255,0.04)" }} />
+                      <ReferenceLine y={avgChamados} stroke="#f59e0b" strokeDasharray="5 3"
+                        strokeWidth={1.5} label={false} />
                       <Bar dataKey="Chamados"   name="Chamados"   fill="#60a5fa" radius={[3,3,0,0]} />
                       <Bar dataKey="Agenciados" name="Agenciados" fill="#10b981" radius={[3,3,0,0]} />
                     </BarChart>
