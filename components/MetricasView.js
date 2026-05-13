@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NAV_TABS } from "@/lib/config";
+import { NAV_TABS, isConverted as isConvertedCfg } from "@/lib/config";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -66,6 +66,9 @@ function getBrowserTz() {
   const abs = Math.abs(off);
   return `${off <= 0 ? "+" : "-"}${String(Math.floor(abs/60)).padStart(2,"0")}:${String(abs%60).padStart(2,"0")}`;
 }
+
+// Usa a mesma lógica de conversão do config.js (case-insensitive, inclui "Convite Aceito")
+const isConverted = isConvertedCfg;
 
 function isWorkingDay(ds) {
   const d = new Date(ds + "T12:00:00");
@@ -439,8 +442,10 @@ function SniperBlock({ target, sniperTotals, sniperDailyByTier, sniperWdElapsed,
   );
 }
 
-// ─── Bloco Sniper Leads — funil + responsável + categoria ────────────────────
-function SniperLeadsBlock({ sniperCrm, sniperByResp, sniperByStatus, sniperByCategoria, sniperDailyBySdr, wdElapsed }) {
+// ─── Bloco Sniper Leads — 3 funis por categoria + filtro por responsável ────
+function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
+  const [selectedResp, setSelectedResp] = useState("Todos");
+
   if (!sniperCrm.length) return null;
 
   const STATUS_ORDER = [
@@ -449,172 +454,191 @@ function SniperLeadsBlock({ sniperCrm, sniperByResp, sniperByStatus, sniperByCat
     "AGENCIADO","Reunião Realizada","Não tem interesse","Desvinculou antes 30",
   ];
   const STATUS_COLOR = {
-    "NÃO CONTATADO": "#64748b", "CONTATADO": "#60a5fa", "CHAMAR NO WPP": "#f472b6",
-    "Em progresso": "#3b82f6", "Reunião Agendada": "#8b5cf6", "Analise de perfil agendada": "#a78bfa",
-    "Enviar Convite": "#ec4899", "Convite Enviado": "#eab308", "Convite Aceito": "#14b8a6",
-    "AGENCIADO": "#10b981", "Reunião Realizada": "#06b6d4", "Não tem interesse": "#ef4444",
-    "Desvinculou antes 30": "#f97316",
+    "NÃO CONTATADO":"#64748b","CONTATADO":"#60a5fa","CHAMAR NO WPP":"#f472b6",
+    "Em progresso":"#3b82f6","Reunião Agendada":"#8b5cf6","Analise de perfil agendada":"#a78bfa",
+    "Enviar Convite":"#ec4899","Convite Enviado":"#eab308","Convite Aceito":"#14b8a6",
+    "AGENCIADO":"#10b981","Reunião Realizada":"#06b6d4","Não tem interesse":"#ef4444",
+    "Desvinculou antes 30":"#f97316",
   };
-  const CAT_COLOR  = { "Silver":"#94a3b8", "Gold":"#f59e0b", "Diamond":"#38bdf8", "Safira":"#e879f9" };
-  const CAT_ICON   = { "Silver":"🥈", "Gold":"🥇", "Diamond":"💎", "Safira":"💠" };
+  const CAT_META = {
+    "Silver":  { color:"#94a3b8", icon:"🥈" },
+    "Gold":    { color:"#f59e0b", icon:"🥇" },
+    "Diamond": { color:"#38bdf8", icon:"💎" },
+  };
+  const SDR_COLOR = { "Nicole Freitas":"#ec4899", "Bruno Zardo":"#10b981" };
 
-  const total = sniperCrm.length;
-  const maxStatus = Math.max(1, ...Object.values(sniperByStatus));
+  const isAgenciado = s => { const u=(s||"").toUpperCase(); return u==="AGENCIADO"||u==="CONVITE ACEITO"; };
 
-  // Moving avg últimos 5 du por responsável
-  function respAvg(resp) {
-    const last5 = wdElapsed.slice(-6, -1);
+  // SDRs presentes nos dados
+  const sdrs = [...new Set(sniperCrm.map(r => r.responsavel).filter(Boolean))].sort();
+
+  // Leads filtrados por SDR selecionado
+  const leads = selectedResp === "Todos"
+    ? sniperCrm
+    : sniperCrm.filter(r => r.responsavel === selectedResp);
+
+  // Moving avg por SDR
+  function sdrAvg(resp) {
+    const last5 = (wdElapsed || []).slice(-6, -1);
     if (!last5.length) return 0;
     const daily = sniperDailyBySdr?.[resp] || {};
     return parseFloat((last5.reduce((a, d) => a + (daily[d] || 0), 0) / last5.length).toFixed(1));
   }
 
-  const respEntries = Object.entries(sniperByResp).sort((a, b) => b[1].total - a[1].total);
-  const catEntries  = Object.entries(sniperByCategoria)
-    .filter(([c]) => c !== "Sem categoria")
-    .sort((a, b) => b[1].total - a[1].total);
+  // Dados por categoria (Silver / Gold / Diamond)
+  const catData = Object.entries(CAT_META).map(([cat, meta]) => {
+    const cl      = leads.filter(r => r.categoria === cat);
+    const byStatus = {};
+    cl.forEach(r => { const s = r.status||"—"; byStatus[s]=(byStatus[s]||0)+1; });
+    const contacted  = cl.filter(r => r.status && r.status !== "NÃO CONTATADO").length;
+    const agenciados = cl.filter(r => isAgenciado(r.status)).length;
+    const taxa       = contacted > 0 ? ((agenciados / contacted) * 100).toFixed(1) : "0.0";
+    const maxCnt     = Math.max(1, ...Object.values(byStatus));
+    return { cat, meta, cl, byStatus, contacted, agenciados, taxa, maxCnt };
+  });
+
+  // Dados por responsável (para o rodapé)
+  const respData = sdrs.map(resp => {
+    const rl      = leads.filter(r => r.responsavel === resp);
+    const contacted  = rl.filter(r => r.status && r.status !== "NÃO CONTATADO").length;
+    const agenciados = rl.filter(r => isAgenciado(r.status)).length;
+    const taxa       = contacted > 0 ? ((agenciados / contacted) * 100).toFixed(1) : "0.0";
+    const avg        = sdrAvg(resp);
+    const byCat      = {};
+    rl.forEach(r => { const c=r.categoria||"?"; byCat[c]=(byCat[c]||0)+1; });
+    return { resp, total:rl.length, contacted, agenciados, taxa, avg, byCat };
+  });
 
   return (
     <div className="glass-panel p-6" style={{ marginTop:"0" }}>
-      <p className="section-label" style={{ marginBottom:"16px" }}>
-        📋 Leads Outbound — Funil · Responsável · Categoria
-      </p>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"20px" }}>
-
-        {/* ── Funil de Fases ── */}
-        <div>
-          <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
-            color:"var(--text-muted)", fontWeight:600, marginBottom:"12px" }}>Funil de Status</p>
-          <div style={{ display:"flex", flexDirection:"column", gap:"6px" }}>
-            {STATUS_ORDER.filter(s => sniperByStatus[s] > 0).map(s => {
-              const cnt  = sniperByStatus[s] || 0;
-              const pct  = total > 0 ? ((cnt / total) * 100).toFixed(1) : 0;
-              const barW = (cnt / maxStatus) * 100;
-              const col  = STATUS_COLOR[s] || "#64748b";
-              return (
-                <div key={s}>
-                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"3px" }}>
-                    <span style={{ fontSize:"0.68rem", color: col, fontWeight:600 }}>{s}</span>
-                    <span style={{ fontSize:"0.68rem", color:"var(--text-secondary)" }}>
-                      {cnt} <span style={{ color:"var(--text-muted)", fontSize:"0.6rem" }}>({pct}%)</span>
-                    </span>
-                  </div>
-                  <div style={{ height:"5px", background:"rgba(255,255,255,0.06)", borderRadius:"3px" }}>
-                    <div style={{ height:"100%", width:`${barW}%`, background:col, borderRadius:"3px",
-                      transition:"width 0.4s" }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ── Por Categoria ── */}
-        <div>
-          <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
-            color:"var(--text-muted)", fontWeight:600, marginBottom:"12px" }}>Por Categoria</p>
-          <div style={{ display:"flex", flexDirection:"column", gap:"10px" }}>
-            {catEntries.map(([cat, d]) => {
-              const col   = CAT_COLOR[cat]  || "#a78bfa";
-              const icon  = CAT_ICON[cat]   || "📦";
-              const conv  = d.total > 0 ? ((d.agenciados / d.total) * 100).toFixed(1) : "0.0";
-              return (
-                <div key={cat} style={{ background:"rgba(255,255,255,0.02)", borderRadius:"10px",
-                  padding:"12px 14px", border:`1px solid ${col}22` }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"8px" }}>
-                    <span style={{ fontSize:"0.82rem", fontWeight:700, color:col }}>{icon} {cat}</span>
-                    <span style={{ fontSize:"0.72rem", color:"var(--text-muted)" }}>{d.total} leads</span>
-                  </div>
-                  <div style={{ display:"flex", gap:"16px" }}>
-                    <div>
-                      <p style={{ fontSize:"0.58rem", color:"var(--text-muted)", textTransform:"uppercase" }}>Agenciados</p>
-                      <p style={{ fontSize:"1.1rem", fontWeight:800, color:col, lineHeight:1 }}>{d.agenciados}</p>
-                    </div>
-                    <div>
-                      <p style={{ fontSize:"0.58rem", color:"var(--text-muted)", textTransform:"uppercase" }}>Taxa</p>
-                      <p style={{ fontSize:"1.1rem", fontWeight:800, color:"#10b981", lineHeight:1 }}>{conv}%</p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Por Responsável ── */}
-      <div style={{ marginTop:"24px", paddingTop:"20px", borderTop:"1px solid rgba(255,255,255,0.07)" }}>
-        <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
-          color:"var(--text-muted)", fontWeight:600, marginBottom:"14px" }}>Por Responsável</p>
-
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:"14px" }}>
-          {respEntries.map(([resp, d]) => {
-            const avg   = respAvg(resp);
-            const conv  = d.total > 0 ? ((d.agenciados / d.total) * 100).toFixed(1) : "0.0";
-            const initials = resp.split(" ").slice(0,2).map(w => w[0]).join("").toUpperCase();
-            const topCats = Object.entries(d.byCategoria)
-              .filter(([c]) => c !== "Sem categoria")
-              .sort((a,b) => b[1] - a[1]).slice(0,3);
-            const topStatus = Object.entries(d.byStatus).sort((a,b) => b[1] - a[1]).slice(0,5);
-
+      {/* Header + filtro SDR */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px", flexWrap:"wrap", gap:"12px" }}>
+        <p className="section-label" style={{ margin:0 }}>
+          📋 Leads Outbound — Funil por Categoria
+        </p>
+        <div style={{ display:"flex", gap:"8px", flexWrap:"wrap" }}>
+          {["Todos", ...sdrs].map(r => {
+            const col = SDR_COLOR[r] || "#a78bfa";
+            const active = selectedResp === r;
             return (
-              <div key={resp} style={{ background:"rgba(255,255,255,0.03)", borderRadius:"12px",
-                padding:"16px", border:"1px solid rgba(255,255,255,0.08)" }}>
-                {/* Header */}
-                <div style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"14px" }}>
-                  <div style={{ width:36, height:36, borderRadius:"50%",
-                    background:"rgba(124,58,237,0.2)", border:"2px solid rgba(124,58,237,0.4)",
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                    fontSize:"0.75rem", fontWeight:800, color:"#a78bfa" }}>{initials}</div>
-                  <div>
-                    <p style={{ fontSize:"0.88rem", fontWeight:700, color:"var(--text-primary)", lineHeight:1 }}>
-                      {resp.split(" ")[0]}
-                    </p>
-                    <p style={{ fontSize:"0.6rem", color:"var(--text-muted)", marginTop:"2px" }}>
-                      {d.total} leads · {d.agenciados} ag. · {conv}% conv.
-                    </p>
-                  </div>
-                  <div style={{ marginLeft:"auto", textAlign:"right" }}>
-                    <p style={{ fontSize:"1.2rem", fontWeight:800, color:"#f97316", lineHeight:1 }}>{avg}/dia</p>
-                    <p style={{ fontSize:"0.58rem", color:"var(--text-muted)" }}>ritmo (5du)</p>
-                  </div>
-                </div>
-
-                {/* Categorias */}
-                {topCats.length > 0 && (
-                  <div style={{ display:"flex", gap:"6px", flexWrap:"wrap", marginBottom:"10px" }}>
-                    {topCats.map(([cat, cnt]) => (
-                      <span key={cat} style={{ fontSize:"0.62rem", fontWeight:600, padding:"2px 8px",
-                        borderRadius:"4px", background:`${CAT_COLOR[cat] || "#7c3aed"}18`,
-                        color: CAT_COLOR[cat] || "#a78bfa",
-                        border:`1px solid ${CAT_COLOR[cat] || "#7c3aed"}30` }}>
-                        {CAT_ICON[cat] || "📦"} {cat}: {cnt}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Top fases */}
-                <div style={{ display:"flex", flexDirection:"column", gap:"4px" }}>
-                  {topStatus.map(([s, cnt]) => {
-                    const col = STATUS_COLOR[s] || "#64748b";
-                    const pct = d.total > 0 ? ((cnt / d.total) * 100).toFixed(0) : 0;
-                    return (
-                      <div key={s} style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                        <span style={{ fontSize:"0.62rem", color:col }}>{s}</span>
-                        <span style={{ fontSize:"0.62rem", color:"var(--text-muted)" }}>
-                          {cnt} <span style={{ opacity:0.6 }}>({pct}%)</span>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <button key={r} onClick={() => setSelectedResp(r)}
+                style={{ padding:"5px 14px", borderRadius:"20px", fontSize:"0.75rem", fontWeight:600,
+                  cursor:"pointer", border:`1px solid ${active ? col : "rgba(255,255,255,0.15)"}`,
+                  background: active ? `${col}22` : "rgba(255,255,255,0.05)",
+                  color: active ? col : "var(--text-secondary)", transition:"all 0.15s" }}>
+                {r === "Todos" ? "Todos" : r.split(" ")[0]}
+              </button>
             );
           })}
         </div>
       </div>
+
+      {/* 3 funis lado a lado */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:"16px" }}>
+        {catData.map(({ cat, meta, cl, byStatus, contacted, agenciados, taxa, maxCnt }) => (
+          <div key={cat} style={{ background:"rgba(255,255,255,0.02)", borderRadius:"12px",
+            padding:"16px", border:`1px solid ${meta.color}22` }}>
+
+            {/* Cabeçalho da categoria */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"14px" }}>
+              <div>
+                <p style={{ fontSize:"0.9rem", fontWeight:700, color:meta.color }}>{meta.icon} {cat}</p>
+                <p style={{ fontSize:"0.62rem", color:"var(--text-muted)", marginTop:"2px" }}>{cl.length} leads</p>
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <p style={{ fontSize:"1.4rem", fontWeight:800, color:"#10b981", lineHeight:1 }}>{taxa}%</p>
+                <p style={{ fontSize:"0.58rem", color:"var(--text-muted)" }}>taxa (a partir contatado)</p>
+              </div>
+            </div>
+
+            {/* KPIs */}
+            <div style={{ display:"flex", gap:"12px", marginBottom:"14px", paddingBottom:"12px",
+              borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
+              {[
+                { label:"Contatados", val:contacted,  color:"#60a5fa" },
+                { label:"Agenciados", val:agenciados, color:"#10b981" },
+              ].map(k => (
+                <div key={k.label}>
+                  <p style={{ fontSize:"0.58rem", color:"var(--text-muted)", textTransform:"uppercase" }}>{k.label}</p>
+                  <p style={{ fontSize:"1.1rem", fontWeight:800, color:k.color, lineHeight:1 }}>{k.val}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Funil de status */}
+            <div style={{ display:"flex", flexDirection:"column", gap:"5px" }}>
+              {STATUS_ORDER.filter(s => (byStatus[s] || 0) > 0).map(s => {
+                const cnt  = byStatus[s] || 0;
+                const barW = (cnt / maxCnt) * 100;
+                const col  = STATUS_COLOR[s] || "#64748b";
+                const pct  = cl.length > 0 ? ((cnt / cl.length) * 100).toFixed(0) : 0;
+                return (
+                  <div key={s}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"2px" }}>
+                      <span style={{ fontSize:"0.62rem", color:col, fontWeight:600 }}>{s}</span>
+                      <span style={{ fontSize:"0.62rem", color:"var(--text-muted)" }}>{cnt} <span style={{ opacity:0.6 }}>({pct}%)</span></span>
+                    </div>
+                    <div style={{ height:"4px", background:"rgba(255,255,255,0.05)", borderRadius:"2px" }}>
+                      <div style={{ height:"100%", width:`${barW}%`, background:col, borderRadius:"2px", transition:"width 0.4s" }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Por Responsável */}
+      {respData.length > 0 && (
+        <div style={{ marginTop:"24px", paddingTop:"20px", borderTop:"1px solid rgba(255,255,255,0.07)" }}>
+          <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
+            color:"var(--text-muted)", fontWeight:600, marginBottom:"14px" }}>Por Responsável</p>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))", gap:"14px" }}>
+            {respData.map(({ resp, total, contacted, agenciados, taxa, avg, byCat }) => {
+              const col      = SDR_COLOR[resp] || "#a78bfa";
+              const initials = resp.split(" ").slice(0,2).map(w=>w[0]).join("").toUpperCase();
+              return (
+                <div key={resp} style={{ background:"rgba(255,255,255,0.03)", borderRadius:"12px",
+                  padding:"16px", border:`1px solid ${col}22` }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"14px" }}>
+                    <div style={{ width:36, height:36, borderRadius:"50%",
+                      background:`${col}22`, border:`2px solid ${col}55`,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      fontSize:"0.75rem", fontWeight:800, color:col }}>{initials}</div>
+                    <div>
+                      <p style={{ fontSize:"0.9rem", fontWeight:700, color:"var(--text-primary)", lineHeight:1 }}>
+                        {resp.split(" ")[0]}
+                      </p>
+                      <p style={{ fontSize:"0.6rem", color:"var(--text-muted)", marginTop:"2px" }}>
+                        {total} leads · {contacted} cont. · {agenciados} ag.
+                      </p>
+                    </div>
+                    <div style={{ marginLeft:"auto", textAlign:"right" }}>
+                      <p style={{ fontSize:"1.2rem", fontWeight:800, color:"#f97316", lineHeight:1 }}>{avg}/dia</p>
+                      <p style={{ fontSize:"0.58rem", color:"#10b981" }}>{taxa}% taxa</p>
+                    </div>
+                  </div>
+                  {/* Breakdown por categoria */}
+                  <div style={{ display:"flex", gap:"8px", flexWrap:"wrap" }}>
+                    {Object.entries(CAT_META).map(([cat, m]) => {
+                      const n = byCat[cat] || 0;
+                      return n > 0 ? (
+                        <span key={cat} style={{ fontSize:"0.62rem", fontWeight:600, padding:"2px 8px",
+                          borderRadius:"4px", background:`${m.color}18`, color:m.color,
+                          border:`1px solid ${m.color}30` }}>
+                          {m.icon} {cat}: {n}
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1079,7 +1103,7 @@ export default function MetricasView() {
     const enc = encodeURIComponent;
 
     Promise.all([
-      fetch(`/api/notion?from=${appliedFrom}&to=${appliedTo}&dateField=${enc("Data do Primeiro contato")}&tz=${enc(tz)}`).then(r => r.json()),
+      fetch(`/api/notion?from=${appliedFrom}&to=${appliedTo}&dateField=last_edited_time&tz=${enc(tz)}`).then(r => r.json()),
       fetch(`/api/gastos?from=${appliedFrom}&to=${appliedTo}`).then(r => r.json()),
       fetch(`/api/sniper?from=${appliedFrom}&to=${appliedTo}&tz=${enc(tz)}`).then(r => r.json()),
     ]).then(([lj, gj, sj]) => {
@@ -1106,8 +1130,6 @@ export default function MetricasView() {
     origem: l.origem || "Desconhecida",
     date:   l.date   || null,
   })), [leads]);
-
-  const isConverted = (f) => f === "Agenciado" || f === "Convite Aceito";
 
   const startLeads  = useMemo(
     () => parsed.filter(l => isConverted(l.fase) && l.origem !== "Outbound"),
@@ -1253,7 +1275,7 @@ export default function MetricasView() {
       map[r.responsavel][r.date] = (map[r.responsavel][r.date] || 0) + 1;
     });
     return map;
-  }, [filteredSniperCrm]);
+  }, [sniperCrm]);
 
   // Custo total
   const totalGasto = useMemo(() => {
