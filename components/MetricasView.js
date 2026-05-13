@@ -492,9 +492,10 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
     cl.forEach(r => { const s = r.status||"—"; byStatus[s]=(byStatus[s]||0)+1; });
     const contacted  = cl.filter(r => r.status && r.status !== "NÃO CONTATADO").length;
     const agenciados = cl.filter(r => isAgenciado(r.status)).length;
+    const desvinc    = cl.filter(r => (r.status || "").toLowerCase().includes("desvinc")).length;
     const taxa       = contacted > 0 ? ((agenciados / contacted) * 100).toFixed(1) : "0.0";
     const maxCnt     = Math.max(1, ...Object.values(byStatus));
-    return { cat, meta, cl, byStatus, contacted, agenciados, taxa, maxCnt };
+    return { cat, meta, cl, byStatus, contacted, agenciados, desvinc, taxa, maxCnt };
   });
 
   // Dados por responsável (para o rodapé)
@@ -536,7 +537,7 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
 
       {/* 3 funis lado a lado */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:"16px" }}>
-        {catData.map(({ cat, meta, cl, byStatus, contacted, agenciados, taxa, maxCnt }) => (
+        {catData.map(({ cat, meta, cl, byStatus, contacted, agenciados, desvinc, taxa, maxCnt }) => (
           <div key={cat} style={{ background:"rgba(255,255,255,0.02)", borderRadius:"12px",
             padding:"16px", border:`1px solid ${meta.color}22` }}>
 
@@ -556,8 +557,9 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
             <div style={{ display:"flex", gap:"12px", marginBottom:"14px", paddingBottom:"12px",
               borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
               {[
-                { label:"Contatados", val:contacted,  color:"#60a5fa" },
-                { label:"Agenciados", val:agenciados, color:"#10b981" },
+                { label:"Contatados",  val:contacted,  color:"#60a5fa" },
+                { label:"Agenciados",  val:agenciados, color:"#10b981" },
+                ...(desvinc > 0 ? [{ label:"Desvinculou", val:desvinc, color:"#f97316" }] : []),
               ].map(k => (
                 <div key={k.label}>
                   <p style={{ fontSize:"0.58rem", color:"var(--text-muted)", textTransform:"uppercase" }}>{k.label}</p>
@@ -1230,22 +1232,26 @@ export default function MetricasView() {
     return map;
   }, [sniperCrm]);
 
-  // Compatibilidade com SniperBlock (metas por tier) — usa agenciados do período
+  // Compatibilidade com SniperBlock (metas por tier)
+  // Usa TODOS os agenciados do CRM (mesmo critério que sniperByCategoria) para consistência
   const sniperBySdr = useMemo(() => {
     const map = {};
     SNIPER_SDRS.forEach(sdr => {
       map[sdr] = { total:0, silver:0, gold:0, diamond:0, safira:0 };
     });
-    sniperAgenciados.forEach(r => {
+    // Todos os leads com status AGENCIADO ou CONVITE ACEITO — sem filtro de data
+    sniperCrm.forEach(r => {
+      const s = (r.status || "").toUpperCase();
+      if (s !== "AGENCIADO" && s !== "CONVITE ACEITO") return;
       const resp = r.responsavel || "";
-      const sdr  = SNIPER_SDRS.find(s => s.toLowerCase().startsWith(resp.split(" ")[0].toLowerCase())) || resp;
+      const sdr  = SNIPER_SDRS.find(s2 => s2.toLowerCase().startsWith(resp.split(" ")[0].toLowerCase())) || resp;
       const cat  = (r.categoria || "").toLowerCase();
       if (!map[sdr]) map[sdr] = { total:0, silver:0, gold:0, diamond:0, safira:0 };
       map[sdr].total++;
       if (["silver","gold","diamond","safira"].includes(cat)) map[sdr][cat]++;
     });
     return map;
-  }, [sniperAgenciados]);
+  }, [sniperCrm]);
 
   const sniperTotals = useMemo(() => ({
     silver:  (sniperByCategoria["Silver"]?.agenciados  || 0),

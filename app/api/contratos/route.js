@@ -116,10 +116,11 @@ export async function GET() {
       rows.push({
         tiktok,
         date,
-        expirado:  isExpirado,
-        renovado:  isRenovado,
-        removido:  isRemover,
-        pendente:  !isRenovado && !isRemover,
+        expirado:    isExpirado,
+        renovado:    isRenovado,
+        removido:    isRemover,
+        pendente:    !isRenovado && !isRemover,
+        _removerRaw: remover,  // diagnóstico — remove depois
       });
     }
 
@@ -141,6 +142,10 @@ export async function GET() {
       ? ((totalRenovados / totalProcessed) * 100).toFixed(1)
       : "0.0";
 
+    // Amostra de valores reais da coluna "Remover acesso?" para diagnóstico
+    const removerSample = rows.slice(0, 20).map(r => r._removerRaw).filter(Boolean);
+    const removerUniq   = [...new Set(rows.map(r => r._removerRaw).filter(v => v !== undefined && v !== ""))].slice(0, 20);
+
     return Response.json({
       success: true,
       data: rows,
@@ -151,6 +156,13 @@ export async function GET() {
         removidos:   totalRemovidos,
         pendentes:   rows.filter(r => r.pendente).length,
         taxaReversao,
+      },
+      _debug: {
+        headerLineIdx,
+        headers: headers.slice(0, 10),
+        colIndices: { iExpirou, iTikTok, iData, iRemover },
+        removerUniqValues: removerUniq,
+        removerSample,
       },
     });
   } catch (err) {
