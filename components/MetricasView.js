@@ -443,7 +443,7 @@ function SniperBlock({ target, sniperTotals, sniperDailyByTier, sniperWdElapsed,
 }
 
 // ─── Bloco Sniper Leads — 3 funis por categoria + filtro por responsável ────
-function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
+function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed, periodFrom, periodTo }) {
   const [selectedResp, setSelectedResp] = useState("Todos");
 
   if (!sniperCrm.length) return null;
@@ -523,15 +523,12 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
     return { resp, total:rl.length, contacted, agenciados, taxa, avg, byCat, agByCat, catRates };
   });
 
-  // Todos os dias do range (min → max das datas nos dados) — sem pular dias sem atividade
+  // Todos os dias do período selecionado (appliedFrom → appliedTo) — sem pular dias sem atividade
   const allDatesRange = (() => {
-    const ds = leads.map(r => r.date).filter(Boolean);
-    if (!ds.length) return [];
-    const minD = ds.reduce((a, b) => a < b ? a : b);
-    const maxD = ds.reduce((a, b) => a > b ? a : b);
+    if (!periodFrom || !periodTo) return [];
     const result = [];
-    const cur = new Date(minD + "T12:00:00");
-    const end = new Date(maxD + "T12:00:00");
+    const cur = new Date(periodFrom + "T12:00:00");
+    const end = new Date(periodTo + "T12:00:00");
     while (cur <= end) {
       result.push(toLocalDate(cur));
       cur.setDate(cur.getDate() + 1);
@@ -716,10 +713,9 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
             {Object.entries(CAT_META).map(([cat, meta]) => {
               const data = catChartData[cat] || [];
               const totalChamados = data.reduce((a, d) => a + d.Chamados, 0);
-              const avgChamados   = data.length > 0
-                ? parseFloat((totalChamados / data.length).toFixed(1)) : 0;
-              const avgAgenciados = data.length > 0
-                ? parseFloat((data.reduce((a,d)=>a+d.Agenciados,0)/data.length).toFixed(2)) : 0;
+              const wdCount       = (wdElapsed || []).length || 1;
+              const avgChamados   = parseFloat((totalChamados / wdCount).toFixed(1));
+              const avgAgenciados = parseFloat((data.reduce((a,d)=>a+d.Agenciados,0) / wdCount).toFixed(2));
 
               const CustomTooltip = ({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
@@ -1559,6 +1555,8 @@ export default function MetricasView() {
             sniperByCategoria={sniperByCategoria}
             sniperDailyBySdr={sniperDailyBySdr}
             wdElapsed={sniperWdElapsed}
+            periodFrom={appliedFrom}
+            periodTo={appliedTo}
           />
 
           <CommissionBlock
