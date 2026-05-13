@@ -150,9 +150,11 @@ export async function GET(request) {
     const totalRenovados  = filtered.filter(r => r.renovado).length;
     const totalRemovidos  = filtered.filter(r => r.removido).length;
     const totalVencimento = filtered.length;
-    // Taxa de renovação = renovados / total com vencimento no período
-    const taxaRenovacao   = totalVencimento > 0
-      ? ((totalRenovados / totalVencimento) * 100).toFixed(1)
+    // Taxa de renovação = renovados / (renovados + removidos)
+    // Exclui pendentes do denominador pois ainda não tomaram decisão
+    const decididos     = totalRenovados + totalRemovidos;
+    const taxaRenovacao = decididos > 0
+      ? ((totalRenovados / decididos) * 100).toFixed(1)
       : "0.0";
 
     return Response.json({

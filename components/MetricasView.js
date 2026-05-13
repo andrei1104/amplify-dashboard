@@ -1044,7 +1044,7 @@ function ContratosBlock({ byDate, totals, loading }) {
           <p style={{ fontSize:"2.4rem", fontWeight:800, lineHeight:1, letterSpacing:"-0.04em",
             color: taxaColor }}>{taxa.toFixed(1)}%</p>
           <p style={{ fontSize:"0.6rem", color:"var(--text-muted)", marginTop:"2px" }}>
-            {totals.renovados} renov. ÷ {totals.total} vencimentos
+            {totals.renovados} renov. ÷ {totals.renovados + totals.removidos} decididos
           </p>
         </div>
       </div>
@@ -1094,8 +1094,7 @@ function ContratosBlock({ byDate, totals, loading }) {
       <div style={{ marginTop:"16px", padding:"10px 14px", background:"rgba(124,58,237,0.06)",
         borderRadius:"8px", border:"1px solid rgba(124,58,237,0.2)" }}>
         <p style={{ fontSize:"0.68rem", color:"#a78bfa" }}>
-          ℹ️ <strong>Taxa de Renovação</strong> = contratos renovados ÷ total com vencimento no período.
-          Pendentes = sem decisão registrada ainda na planilha.
+          ℹ️ <strong>Taxa de Renovação</strong> = renovados ÷ (renovados + removidos). Pendentes excluídos do denominador pois ainda não tomaram decisão.
           Dados atualizados direto da planilha Amplify Club.
         </p>
       </div>
