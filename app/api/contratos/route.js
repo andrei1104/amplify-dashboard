@@ -38,8 +38,12 @@ function parseBrDate(str) {
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
-export async function GET() {
+export async function GET(request) {
   try {
+    const url  = new URL(request.url);
+    const from = url.searchParams.get("from") || null;  // YYYY-MM-DD
+    const to   = url.searchParams.get("to")   || null;  // YYYY-MM-DD
+
     const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
     const res    = await fetch(csvUrl, { cache: "no-store" });
 
@@ -53,7 +57,7 @@ export async function GET() {
     const text  = await res.text();
     const lines = text.split("\n").filter(l => l.trim());
     if (lines.length < 2) {
-      return Response.json({ success: true, data: [], byDate: {}, totals: { total: 0, renovados: 0, removidos: 0, pendentes: 0, taxaReversao: "0.0" } });
+      return Response.json({ success: true, data: [], byDate: {}, totals: { total: 0, renovados: 0, removidos: 0, pendentes: 0, taxaRenovacao: "0.0" } });
     }
 
     // ── Localiza a linha de cabeçalho real (a planilha tem conteúdo antes da tabela)
@@ -125,10 +129,17 @@ export async function GET() {
       });
     }
 
+    // ── Filtra pelo período selecionado (data de expiração dentro do range) ──
+    const filtered = rows.filter(r => {
+      if (!r.date) return false;
+      if (from && r.date < from) return false;
+      if (to   && r.date > to)   return false;
+      return true;
+    });
+
     // ── Agrega por data ───────────────────────────────────────────────────────
     const byDate = {};
-    rows.forEach(r => {
-      if (!r.date) return;
+    filtered.forEach(r => {
       if (!byDate[r.date]) byDate[r.date] = { expirando: 0, renovados: 0, removidos: 0, pendentes: 0 };
       byDate[r.date].expirando++;
       if (r.renovado) byDate[r.date].renovados++;
@@ -136,34 +147,24 @@ export async function GET() {
       if (r.pendente) byDate[r.date].pendentes++;
     });
 
-    const totalRenovados = rows.filter(r => r.renovado).length;
-    const totalRemovidos = rows.filter(r => r.removido).length;
-    const totalProcessed = totalRenovados + totalRemovidos;
-    const taxaReversao   = totalProcessed > 0
-      ? ((totalRenovados / totalProcessed) * 100).toFixed(1)
+    const totalRenovados  = filtered.filter(r => r.renovado).length;
+    const totalRemovidos  = filtered.filter(r => r.removido).length;
+    const totalVencimento = filtered.length;
+    // Taxa de renovação = renovados / total com vencimento no período
+    const taxaRenovacao   = totalVencimento > 0
+      ? ((totalRenovados / totalVencimento) * 100).toFixed(1)
       : "0.0";
-
-    // Amostra de valores reais da coluna "Remover acesso?" para diagnóstico
-    const removerSample = rows.slice(0, 20).map(r => r._removerRaw).filter(Boolean);
-    const removerUniq   = [...new Set(rows.map(r => r._removerRaw).filter(v => v !== undefined && v !== ""))].slice(0, 20);
 
     return Response.json({
       success: true,
-      data: rows,
+      data: filtered,
       byDate,
       totals: {
-        total:       rows.length,
-        renovados:   totalRenovados,
-        removidos:   totalRemovidos,
-        pendentes:   rows.filter(r => r.pendente).length,
-        taxaReversao,
-      },
-      _debug: {
-        headerLineIdx,
-        headers: headers.slice(0, 10),
-        colIndices: { iExpirou, iTikTok, iData, iRemover },
-        removerUniqValues: removerUniq,
-        removerSample,
+        total:        totalVencimento,
+        renovados:    totalRenovados,
+        removidos:    totalRemovidos,
+        pendentes:    filtered.filter(r => r.pendente).length,
+        taxaRenovacao,
       },
     });
   } catch (err) {

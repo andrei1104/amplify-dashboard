@@ -498,6 +498,9 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
     return { cat, meta, cl, byStatus, contacted, agenciados, desvinc, taxa, maxCnt };
   });
 
+  // Dias úteis transcorridos (para taxa/dia)
+  const wdCount = (wdElapsed || []).length || 1;
+
   // Dados por responsável (para o rodapé)
   const respData = sdrs.map(resp => {
     const rl      = leads.filter(r => r.responsavel === resp);
@@ -505,9 +508,35 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
     const agenciados = rl.filter(r => isAgenciado(r.status)).length;
     const taxa       = contacted > 0 ? ((agenciados / contacted) * 100).toFixed(1) : "0.0";
     const avg        = sdrAvg(resp);
-    const byCat      = {};
-    rl.forEach(r => { const c=r.categoria||"?"; byCat[c]=(byCat[c]||0)+1; });
-    return { resp, total:rl.length, contacted, agenciados, taxa, avg, byCat };
+    const byCat  = {};   // total leads por categoria
+    const agByCat = {};  // agenciados por categoria
+    rl.forEach(r => {
+      const c = r.categoria || "?";
+      byCat[c]  = (byCat[c]  || 0) + 1;
+      if (isAgenciado(r.status)) agByCat[c] = (agByCat[c] || 0) + 1;
+    });
+    // Taxa por dia por categoria = agenciados_cat / wdCount
+    const catRates = {};
+    Object.keys(CAT_META).forEach(cat => {
+      catRates[cat] = parseFloat(((agByCat[cat] || 0) / wdCount).toFixed(2));
+    });
+    return { resp, total:rl.length, contacted, agenciados, taxa, avg, byCat, agByCat, catRates };
+  });
+
+  // Dados diários por categoria (para os gráficos) — baseados nos leads filtrados por SDR
+  const allDates = [...new Set(leads.map(r => r.date).filter(Boolean))].sort();
+  const catChartData = {};
+  Object.keys(CAT_META).forEach(cat => {
+    catChartData[cat] = allDates
+      .map(d => {
+        const dl = leads.filter(r => r.categoria === cat && r.date === d);
+        return {
+          date:       d.slice(5).replace("-", "/"),
+          Chamados:   dl.filter(r => r.status && r.status !== "NÃO CONTATADO").length,
+          Agenciados: dl.filter(r => isAgenciado(r.status)).length,
+        };
+      })
+      .filter(d => d.Chamados > 0 || d.Agenciados > 0);
   });
 
   return (
@@ -597,13 +626,14 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
         <div style={{ marginTop:"24px", paddingTop:"20px", borderTop:"1px solid rgba(255,255,255,0.07)" }}>
           <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
             color:"var(--text-muted)", fontWeight:600, marginBottom:"14px" }}>Por Responsável</p>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))", gap:"14px" }}>
-            {respData.map(({ resp, total, contacted, agenciados, taxa, avg, byCat }) => {
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))", gap:"14px" }}>
+            {respData.map(({ resp, total, contacted, agenciados, taxa, avg, byCat, agByCat, catRates }) => {
               const col      = SDR_COLOR[resp] || "#a78bfa";
               const initials = resp.split(" ").slice(0,2).map(w=>w[0]).join("").toUpperCase();
               return (
                 <div key={resp} style={{ background:"rgba(255,255,255,0.03)", borderRadius:"12px",
                   padding:"16px", border:`1px solid ${col}22` }}>
+                  {/* Header SDR */}
                   <div style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"14px" }}>
                     <div style={{ width:36, height:36, borderRadius:"50%",
                       background:`${col}22`, border:`2px solid ${col}55`,
@@ -622,19 +652,95 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed }) {
                       <p style={{ fontSize:"0.58rem", color:"#10b981" }}>{taxa}% taxa</p>
                     </div>
                   </div>
-                  {/* Breakdown por categoria */}
-                  <div style={{ display:"flex", gap:"8px", flexWrap:"wrap" }}>
+                  {/* Breakdown por categoria com taxa/dia */}
+                  <div style={{ display:"flex", flexDirection:"column", gap:"7px" }}>
                     {Object.entries(CAT_META).map(([cat, m]) => {
-                      const n = byCat[cat] || 0;
-                      return n > 0 ? (
-                        <span key={cat} style={{ fontSize:"0.62rem", fontWeight:600, padding:"2px 8px",
-                          borderRadius:"4px", background:`${m.color}18`, color:m.color,
-                          border:`1px solid ${m.color}30` }}>
-                          {m.icon} {cat}: {n}
-                        </span>
-                      ) : null;
+                      const n   = byCat[cat]  || 0;
+                      const ag  = agByCat[cat] || 0;
+                      const rt  = catRates[cat] || 0;
+                      if (!n) return null;
+                      const catTaxa = n > 0 ? ((ag / n) * 100).toFixed(1) : "0.0";
+                      return (
+                        <div key={cat} style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                          background:`${m.color}0d`, borderRadius:"6px", padding:"6px 10px",
+                          border:`1px solid ${m.color}22` }}>
+                          <span style={{ fontSize:"0.72rem", fontWeight:600, color:m.color }}>
+                            {m.icon} {cat}
+                          </span>
+                          <div style={{ display:"flex", gap:"14px", alignItems:"center" }}>
+                            <span style={{ fontSize:"0.65rem", color:"var(--text-muted)" }}>
+                              {n} leads
+                            </span>
+                            <span style={{ fontSize:"0.65rem", color:"#10b981", fontWeight:600 }}>
+                              {ag} ag.
+                            </span>
+                            <span style={{ fontSize:"0.65rem", color:"#60a5fa", fontWeight:700 }}>
+                              {rt}/dia
+                            </span>
+                            <span style={{ fontSize:"0.6rem", color:"var(--text-muted)" }}>
+                              ({catTaxa}%)
+                            </span>
+                          </div>
+                        </div>
+                      );
                     })}
                   </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Gráficos diários por categoria ─── */}
+      {allDates.length > 0 && (
+        <div style={{ marginTop:"24px", paddingTop:"20px", borderTop:"1px solid rgba(255,255,255,0.07)" }}>
+          <p style={{ fontSize:"0.65rem", textTransform:"uppercase", letterSpacing:"0.08em",
+            color:"var(--text-muted)", fontWeight:600, marginBottom:"16px" }}>
+            Evolução Diária por Categoria — Chamados vs Agenciados
+          </p>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:"16px" }}>
+            {Object.entries(CAT_META).map(([cat, meta]) => {
+              const data = catChartData[cat] || [];
+              if (!data.length) return (
+                <div key={cat} style={{ background:"rgba(255,255,255,0.02)", borderRadius:"10px",
+                  padding:"14px", border:`1px solid ${meta.color}18`,
+                  display:"flex", alignItems:"center", justifyContent:"center", minHeight:"140px" }}>
+                  <p style={{ fontSize:"0.72rem", color:"var(--text-muted)" }}>{meta.icon} {cat} — sem dados</p>
+                </div>
+              );
+              const CustomTooltip = ({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                return (
+                  <div style={{ background:"rgba(15,15,25,0.95)", border:"1px solid rgba(255,255,255,0.12)",
+                    borderRadius:"6px", padding:"8px 12px", fontSize:"0.72rem" }}>
+                    <p style={{ fontWeight:700, color:"var(--text-primary)", marginBottom:"4px" }}>📅 {label}</p>
+                    {payload.map(p => (
+                      <p key={p.dataKey} style={{ color:p.fill, margin:"1px 0" }}>
+                        {p.name}: <strong>{p.value}</strong>
+                      </p>
+                    ))}
+                  </div>
+                );
+              };
+              return (
+                <div key={cat} style={{ background:"rgba(255,255,255,0.02)", borderRadius:"10px",
+                  padding:"14px", border:`1px solid ${meta.color}22` }}>
+                  <p style={{ fontSize:"0.8rem", fontWeight:700, color:meta.color, marginBottom:"10px" }}>
+                    {meta.icon} {cat}
+                  </p>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={data} margin={{ top:4, right:4, left:-20, bottom:0 }} barGap={2} barCategoryGap="35%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fontSize:9, fill:"#94a3b8" }}
+                        tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                      <YAxis allowDecimals={false} tick={{ fontSize:9, fill:"#94a3b8" }}
+                        tickLine={false} axisLine={false} />
+                      <Tooltip content={<CustomTooltip />} cursor={{ fill:"rgba(255,255,255,0.04)" }} />
+                      <Bar dataKey="Chamados"   name="Chamados"   fill="#60a5fa" radius={[3,3,0,0]} />
+                      <Bar dataKey="Agenciados" name="Agenciados" fill="#10b981" radius={[3,3,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               );
             })}
@@ -891,7 +997,7 @@ function ContratosBlock({ byDate, totals, loading }) {
       pendentes: d.pendentes,
     }));
 
-  const taxa     = parseFloat(totals.taxaReversao);
+  const taxa     = parseFloat(totals.taxaRenovacao);
   const taxaColor = taxa >= 60 ? "#10b981" : taxa >= 40 ? "#f59e0b" : "#ef4444";
   const taxaIcon  = taxa >= 60 ? "✅" : taxa >= 40 ? "⚠️" : "🔴";
 
@@ -933,12 +1039,12 @@ function ContratosBlock({ byDate, totals, loading }) {
         <div style={{ textAlign:"right", minWidth:"120px" }}>
           <p style={{ fontSize:"0.6rem", textTransform:"uppercase", letterSpacing:"0.08em",
             color:"var(--text-muted)", fontWeight:600, marginBottom:"4px" }}>
-            {taxaIcon} Taxa de Reversão
+            {taxaIcon} Taxa de Renovação
           </p>
           <p style={{ fontSize:"2.4rem", fontWeight:800, lineHeight:1, letterSpacing:"-0.04em",
             color: taxaColor }}>{taxa.toFixed(1)}%</p>
           <p style={{ fontSize:"0.6rem", color:"var(--text-muted)", marginTop:"2px" }}>
-            {totals.renovados} renov. ÷ {totals.renovados + totals.removidos} dec.
+            {totals.renovados} renov. ÷ {totals.total} vencimentos
           </p>
         </div>
       </div>
@@ -988,7 +1094,7 @@ function ContratosBlock({ byDate, totals, loading }) {
       <div style={{ marginTop:"16px", padding:"10px 14px", background:"rgba(124,58,237,0.06)",
         borderRadius:"8px", border:"1px solid rgba(124,58,237,0.2)" }}>
         <p style={{ fontSize:"0.68rem", color:"#a78bfa" }}>
-          ℹ️ <strong>Taxa de Reversão</strong> = contratos renovados ÷ (renovados + removidos).
+          ℹ️ <strong>Taxa de Renovação</strong> = contratos renovados ÷ total com vencimento no período.
           Pendentes = sem decisão registrada ainda na planilha.
           Dados atualizados direto da planilha Amplify Club.
         </p>
@@ -1082,10 +1188,10 @@ export default function MetricasView() {
   const [loading,         setLoading]          = useState(true);
   const [error,           setError]            = useState(null);
 
-  // ─── Fetch contratos (independente do período) ───────────────────────────
+  // ─── Fetch contratos (filtrado pelo período selecionado) ─────────────────
   useEffect(() => {
     setContratosLoading(true);
-    fetch("/api/contratos")
+    fetch(`/api/contratos?from=${appliedFrom}&to=${appliedTo}`)
       .then(r => r.json())
       .then(j => {
         if (j.error) { console.warn("[contratos]", j.error); return; }
@@ -1094,7 +1200,7 @@ export default function MetricasView() {
       })
       .catch(e => console.warn("[contratos]", e.message))
       .finally(() => setContratosLoading(false));
-  }, []);
+  }, [appliedFrom, appliedTo]);
 
   // ─── Fetch ────────────────────────────────────────────────────────────────
   useEffect(() => {
