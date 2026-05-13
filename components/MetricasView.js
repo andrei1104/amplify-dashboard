@@ -1133,20 +1133,24 @@ export default function MetricasView() {
   }, [startLeads.length, workingDaysRemaining, target]);
 
   // ─── Processamento — CRM Sniper (Leads Outbound DB) ─────────────────────
-  // sniperCrm agora retorna: { responsavel, status, categoria, date, followers }
+  // A API busca todos os registros; filtramos aqui pelo período selecionado
+  // usando r.date (que prefere "Data do primeiro Huggy" → created_time).
+  const filteredSniperCrm = useMemo(() =>
+    sniperCrm.filter(r => r.date && r.date >= appliedFrom && r.date <= appliedTo),
+  [sniperCrm, appliedFrom, appliedTo]);
 
   // Leads agenciados = status AGENCIADO ou Convite Aceito (para metas)
   const sniperAgenciados = useMemo(() =>
-    sniperCrm.filter(r => {
+    filteredSniperCrm.filter(r => {
       const s = (r.status || "").toUpperCase();
       return s === "AGENCIADO" || s === "CONVITE ACEITO";
     }),
-  [sniperCrm]);
+  [filteredSniperCrm]);
 
   // Por responsável: total chamados, agenciados, por categoria, daily map
   const sniperByResp = useMemo(() => {
     const map = {};
-    sniperCrm.forEach(r => {
+    filteredSniperCrm.forEach(r => {
       const resp = r.responsavel || "Sem responsável";
       if (!map[resp]) map[resp] = { total:0, agenciados:0, byCategoria:{}, byStatus:{}, daily:{} };
       const m = map[resp];
@@ -1164,17 +1168,17 @@ export default function MetricasView() {
   // Geral por status (funil)
   const sniperByStatus = useMemo(() => {
     const map = {};
-    sniperCrm.forEach(r => {
+    filteredSniperCrm.forEach(r => {
       const s = r.status || "—";
       map[s] = (map[s] || 0) + 1;
     });
     return map;
-  }, [sniperCrm]);
+  }, [filteredSniperCrm]);
 
   // Geral por categoria
   const sniperByCategoria = useMemo(() => {
     const map = {};
-    sniperCrm.forEach(r => {
+    filteredSniperCrm.forEach(r => {
       const c = r.categoria || "Sem categoria";
       if (!map[c]) map[c] = { total:0, agenciados:0 };
       map[c].total++;
@@ -1182,7 +1186,7 @@ export default function MetricasView() {
       if (s === "AGENCIADO" || s === "CONVITE ACEITO") map[c].agenciados++;
     });
     return map;
-  }, [sniperCrm]);
+  }, [filteredSniperCrm]);
 
   // Compatibilidade com SniperBlock existente (por tier = categoria)
   const sniperBySdr = useMemo(() => {
@@ -1224,13 +1228,13 @@ export default function MetricasView() {
   // Contagem diária por responsável (para ritmo individual)
   const sniperDailyBySdr = useMemo(() => {
     const map = {};
-    sniperCrm.forEach(r => {
+    filteredSniperCrm.forEach(r => {
       if (!r.date || !r.responsavel) return;
       if (!map[r.responsavel]) map[r.responsavel] = {};
       map[r.responsavel][r.date] = (map[r.responsavel][r.date] || 0) + 1;
     });
     return map;
-  }, [sniperCrm]);
+  }, [filteredSniperCrm]);
 
   // Custo total
   const totalGasto = useMemo(() => {
@@ -1342,7 +1346,7 @@ export default function MetricasView() {
           />
 
           <SniperLeadsBlock
-            sniperCrm={sniperCrm}
+            sniperCrm={filteredSniperCrm}
             sniperByResp={sniperByResp}
             sniperByStatus={sniperByStatus}
             sniperByCategoria={sniperByCategoria}

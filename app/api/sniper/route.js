@@ -66,28 +66,11 @@ export async function GET(request) {
   const to   = url.searchParams.get("to");
   const tz   = url.searchParams.get("tz") || "-03:00";
 
-  // Filtro opcional por "Data do primeiro Huggy" (quando o lead foi chamado)
-  const filter = from && to
-    ? {
-        or: [
-          // Lead tem data de contato no período
-          {
-            and: [
-              { property: "Data do primeiro Huggy", date: { on_or_after:  `${from}T00:00:00${tz}` } },
-              { property: "Data do primeiro Huggy", date: { on_or_before: `${to}T23:59:59${tz}`   } },
-            ],
-          },
-          // Fallback: sem data de contato → usa created_time
-          {
-            and: [
-              { property: "Data do primeiro Huggy", date: { is_empty: true } },
-              { timestamp: "created_time", created_time: { on_or_after:  `${from}T00:00:00${tz}` } },
-              { timestamp: "created_time", created_time: { on_or_before: `${to}T23:59:59${tz}`   } },
-            ],
-          },
-        ],
-      }
-    : null;
+  // Sem filtro de data na API — busca todos os registros.
+  // A filtragem por período é feita no cliente usando o campo `date`
+  // (que prefere "Data do primeiro Huggy" sobre created_time), evitando
+  // erros por nomes de propriedade ou leads criados antes do período selecionado.
+  const filter = null;
 
   try {
     const results = await queryDb(SNIPER_DB_ID, filter);

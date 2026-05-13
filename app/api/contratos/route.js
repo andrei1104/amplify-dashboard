@@ -56,8 +56,27 @@ export async function GET() {
       return Response.json({ success: true, data: [], byDate: {}, totals: { total: 0, renovados: 0, removidos: 0, pendentes: 0, taxaReversao: "0.0" } });
     }
 
-    // Cabeçalhos
-    const headers = parseCsvRow(lines[0]);
+    // ── Localiza a linha de cabeçalho real (a planilha tem conteúdo antes da tabela)
+    // Procura a linha que contém "TikTok" OU "Expiração" OU "Remover acesso"
+    const HEADER_KEYWORDS = ["tiktok", "expira", "remover acesso"];
+    let headerLineIdx = -1;
+    let headers = [];
+    for (let i = 0; i < Math.min(lines.length, 20); i++) {
+      const cells = parseCsvRow(lines[i]);
+      const joined = cells.join(" ").toLowerCase();
+      if (HEADER_KEYWORDS.some(k => joined.includes(k))) {
+        headerLineIdx = i;
+        headers = cells;
+        break;
+      }
+    }
+
+    // Fallback: usa linha 0
+    if (headerLineIdx === -1) {
+      headerLineIdx = 0;
+      headers = parseCsvRow(lines[0]);
+    }
+    console.log(`[/api/contratos] Cabeçalho na linha ${headerLineIdx}:`, headers.slice(0, 6));
 
     // Localiza colunas por nome (case-insensitive)
     const idx = (needle) =>
@@ -77,7 +96,7 @@ export async function GET() {
 
     const rows = [];
 
-    for (let i = 1; i < lines.length; i++) {
+    for (let i = headerLineIdx + 1; i < lines.length; i++) {
       const cells = parseCsvRow(lines[i]);
       if (cells.every(c => !c)) continue; // linha vazia
 
