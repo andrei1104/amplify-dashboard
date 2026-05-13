@@ -57,14 +57,15 @@ export async function GET() {
     }
 
     // ── Localiza a linha de cabeçalho real (a planilha tem conteúdo antes da tabela)
-    // Procura a linha que contém "TikTok" OU "Expiração" OU "Remover acesso"
+    // Usa .every() para exigir TODOS os keywords na mesma linha.
+    // Evita falso positivo no texto da mensagem modelo ("TikTok Shop" + "expirando")
     const HEADER_KEYWORDS = ["tiktok", "expira", "remover acesso"];
     let headerLineIdx = -1;
     let headers = [];
-    for (let i = 0; i < Math.min(lines.length, 20); i++) {
+    for (let i = 0; i < Math.min(lines.length, 25); i++) {
       const cells = parseCsvRow(lines[i]);
       const joined = cells.join(" ").toLowerCase();
-      if (HEADER_KEYWORDS.some(k => joined.includes(k))) {
+      if (HEADER_KEYWORDS.every(k => joined.includes(k))) {
         headerLineIdx = i;
         headers = cells;
         break;
