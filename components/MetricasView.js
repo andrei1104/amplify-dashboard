@@ -500,7 +500,9 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed, periodFrom, 
     const contacted  = cl.filter(r => inPeriod(r) && r.status && r.status !== "NÃO CONTATADO").length;
     const agenciados = cl.filter(r => agInPeriod(r)).length;
     const desvinc    = cl.filter(r => inPeriod(r) && (r.status || "").toLowerCase().includes("desvinc")).length;
-    const taxa       = contacted > 0 ? ((agenciados / contacted) * 100).toFixed(1) : "0.0";
+    // Agenciados sempre passaram pela fase "contatado" → soma no denominador para não ultrapassar 100%
+    const taxaDen    = contacted + agenciados;
+    const taxa       = taxaDen > 0 ? ((agenciados / taxaDen) * 100).toFixed(1) : "0.0";
     const maxCnt     = Math.max(1, ...Object.values(byStatus));
     return { cat, meta, cl, byStatus, contacted, agenciados, desvinc, taxa, maxCnt };
   });
@@ -513,7 +515,8 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed, periodFrom, 
     const rl         = leads.filter(r => r.responsavel === resp);
     const contacted  = rl.filter(r => inPeriod(r) && r.status && r.status !== "NÃO CONTATADO").length;
     const agenciados = rl.filter(r => agInPeriod(r)).length;
-    const taxa       = contacted > 0 ? ((agenciados / contacted) * 100).toFixed(1) : "0.0";
+    const taxaDen    = contacted + agenciados;
+    const taxa       = taxaDen > 0 ? ((agenciados / taxaDen) * 100).toFixed(1) : "0.0";
     const avg        = sdrAvg(resp);
     const byCat  = {};
     const agByCat = {};
