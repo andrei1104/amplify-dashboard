@@ -485,14 +485,21 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed, periodFrom, 
     return parseFloat((last5.reduce((a, d) => a + (daily[d] || 0), 0) / last5.length).toFixed(1));
   }
 
+  // Helpers de filtro por período
+  // Chamados = lead foi trabalhado no período (editedDate no range)
+  // Agenciados = lead virou agenciado no período (date/huggyDate no range)
+  const inPeriod     = r => r.editedDate && r.editedDate >= periodFrom && r.editedDate <= periodTo;
+  const agInPeriod   = r => r.date && r.date >= periodFrom && r.date <= periodTo && isAgenciado(r.status);
+
   // Dados por categoria (Silver / Gold / Diamond)
   const catData = Object.entries(CAT_META).map(([cat, meta]) => {
     const cl      = leads.filter(r => r.categoria === cat);
     const byStatus = {};
     cl.forEach(r => { const s = r.status||"—"; byStatus[s]=(byStatus[s]||0)+1; });
-    const contacted  = cl.filter(r => r.status && r.status !== "NÃO CONTATADO").length;
-    const agenciados = cl.filter(r => isAgenciado(r.status)).length;
-    const desvinc    = cl.filter(r => (r.status || "").toLowerCase().includes("desvinc")).length;
+    // chamados e agenciados filtrados ao período
+    const contacted  = cl.filter(r => inPeriod(r) && r.status && r.status !== "NÃO CONTATADO").length;
+    const agenciados = cl.filter(r => agInPeriod(r)).length;
+    const desvinc    = cl.filter(r => inPeriod(r) && (r.status || "").toLowerCase().includes("desvinc")).length;
     const taxa       = contacted > 0 ? ((agenciados / contacted) * 100).toFixed(1) : "0.0";
     const maxCnt     = Math.max(1, ...Object.values(byStatus));
     return { cat, meta, cl, byStatus, contacted, agenciados, desvinc, taxa, maxCnt };
@@ -503,19 +510,18 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed, periodFrom, 
 
   // Dados por responsável (para o rodapé)
   const respData = sdrs.map(resp => {
-    const rl      = leads.filter(r => r.responsavel === resp);
-    const contacted  = rl.filter(r => r.status && r.status !== "NÃO CONTATADO").length;
-    const agenciados = rl.filter(r => isAgenciado(r.status)).length;
+    const rl         = leads.filter(r => r.responsavel === resp);
+    const contacted  = rl.filter(r => inPeriod(r) && r.status && r.status !== "NÃO CONTATADO").length;
+    const agenciados = rl.filter(r => agInPeriod(r)).length;
     const taxa       = contacted > 0 ? ((agenciados / contacted) * 100).toFixed(1) : "0.0";
     const avg        = sdrAvg(resp);
-    const byCat  = {};   // total leads por categoria
-    const agByCat = {};  // agenciados por categoria
+    const byCat  = {};
+    const agByCat = {};
     rl.forEach(r => {
       const c = r.categoria || "?";
-      byCat[c]  = (byCat[c]  || 0) + 1;
-      if (isAgenciado(r.status)) agByCat[c] = (agByCat[c] || 0) + 1;
+      byCat[c] = (byCat[c] || 0) + 1;
+      if (agInPeriod(r)) agByCat[c] = (agByCat[c] || 0) + 1;
     });
-    // Taxa por dia por categoria = agenciados_cat / wdCount
     const catRates = {};
     Object.keys(CAT_META).forEach(cat => {
       catRates[cat] = parseFloat(((agByCat[cat] || 0) / wdCount).toFixed(2));
@@ -537,14 +543,16 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed, periodFrom, 
   })();
 
   // Dados diários por categoria (para os gráficos) — todos os dias, incluindo zeros
+  // Chamados = trabalhados no dia (editedDate), Agenciados = virou agenciado no dia (date)
   const catChartData = {};
   Object.keys(CAT_META).forEach(cat => {
     catChartData[cat] = allDatesRange.map(d => {
-      const dl = leads.filter(r => r.categoria === cat && r.date === d);
+      const byEdit = leads.filter(r => r.categoria === cat && r.editedDate === d);
+      const byDate = leads.filter(r => r.categoria === cat && r.date === d);
       return {
         date:       d.slice(5).replace("-", "/"),
-        Chamados:   dl.filter(r => r.status && r.status !== "NÃO CONTATADO").length,
-        Agenciados: dl.filter(r => isAgenciado(r.status)).length,
+        Chamados:   byEdit.filter(r => r.status && r.status !== "NÃO CONTATADO").length,
+        Agenciados: byDate.filter(r => isAgenciado(r.status)).length,
       };
     });
   });
@@ -1354,10 +1362,10 @@ export default function MetricasView() {
     return map;
   }, [sniperCrm]);
 
-  // Geral por categoria — todos os leads
+  // Geral por categoria — agenciados no período selecionado (filteredSniperCrm)
   const sniperByCategoria = useMemo(() => {
     const map = {};
-    sniperCrm.forEach(r => {
+    filteredSniperCrm.forEach(r => {
       const c = r.categoria || "Sem categoria";
       if (!map[c]) map[c] = { total:0, agenciados:0 };
       map[c].total++;
@@ -1365,17 +1373,15 @@ export default function MetricasView() {
       if (s === "AGENCIADO" || s === "CONVITE ACEITO") map[c].agenciados++;
     });
     return map;
-  }, [sniperCrm]);
+  }, [filteredSniperCrm]);
 
-  // Compatibilidade com SniperBlock (metas por tier)
-  // Usa TODOS os agenciados do CRM (mesmo critério que sniperByCategoria) para consistência
+  // Compatibilidade com SniperBlock (metas por tier) — filtrado pelo período selecionado
   const sniperBySdr = useMemo(() => {
     const map = {};
     SNIPER_SDRS.forEach(sdr => {
       map[sdr] = { total:0, silver:0, gold:0, diamond:0, safira:0 };
     });
-    // Todos os leads com status AGENCIADO ou CONVITE ACEITO — sem filtro de data
-    sniperCrm.forEach(r => {
+    filteredSniperCrm.forEach(r => {
       const s = (r.status || "").toUpperCase();
       if (s !== "AGENCIADO" && s !== "CONVITE ACEITO") return;
       const resp = r.responsavel || "";
@@ -1386,7 +1392,7 @@ export default function MetricasView() {
       if (["silver","gold","diamond","safira"].includes(cat)) map[sdr][cat]++;
     });
     return map;
-  }, [sniperCrm]);
+  }, [filteredSniperCrm]);
 
   const sniperTotals = useMemo(() => ({
     silver:  (sniperByCategoria["Silver"]?.agenciados  || 0),
@@ -1407,16 +1413,18 @@ export default function MetricasView() {
     return map;
   }, [sniperAgenciados]);
 
-  // Contagem diária por responsável — todos os leads (para ritmo de chamadas)
+  // Contagem diária por responsável — usando editedDate filtrado ao período (para ritmo de chamadas)
   const sniperDailyBySdr = useMemo(() => {
     const map = {};
     sniperCrm.forEach(r => {
-      if (!r.date || !r.responsavel) return;
+      const d = r.editedDate;
+      if (!d || !r.responsavel) return;
+      if (d < appliedFrom || d > appliedTo) return;  // só contar no período selecionado
       if (!map[r.responsavel]) map[r.responsavel] = {};
-      map[r.responsavel][r.date] = (map[r.responsavel][r.date] || 0) + 1;
+      map[r.responsavel][d] = (map[r.responsavel][d] || 0) + 1;
     });
     return map;
-  }, [sniperCrm]);
+  }, [sniperCrm, appliedFrom, appliedTo]);
 
   // Custo total
   const totalGasto = useMemo(() => {

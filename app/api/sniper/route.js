@@ -94,6 +94,9 @@ export async function GET(request) {
       const huggyDate = props["Data do primeiro Huggy"]?.date?.start?.slice(0, 10) || null;
       const date = huggyDate || toLocalDate(r.created_time, tz);
 
+      // editedDate = última vez que o registro foi modificado (usado para contar chamados do dia)
+      const editedDate = toLocalDate(r.last_edited_time, tz);
+
       return {
         id:          r.id,
         responsavel,
@@ -101,7 +104,8 @@ export async function GET(request) {
         categoria,
         followers,
         date,
-        huggyDate,   // null se não preenchido — usado para filtrar por período no cliente
+        huggyDate,    // null se não preenchido — usado para filtrar agenciados por período
+        editedDate,   // last_edited_time — usado para filtrar chamados por período
       };
     });
 

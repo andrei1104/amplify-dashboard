@@ -116,16 +116,20 @@ export async function GET(request) {
       const date       = parseBrDate(dataStr);
       const isRenovado = remover.toLowerCase().includes("renovado");
       const isRemover  = remover.toLowerCase().includes("remover") && !isRenovado;
-      const isExpirado = expirou.toLowerCase().includes("expirado");
+
+      // Hoje em formato YYYY-MM-DD (UTC)
+      const today = new Date().toISOString().slice(0, 10);
+      // Se a data de expiração já passou e não foi renovado nem marcado p/ remover → expirado/removido
+      const isExpiradoPorData = date && date < today && !isRenovado && !isRemover;
+      const isPendente = !isRenovado && !isRemover && date && date >= today;
 
       rows.push({
         tiktok,
         date,
-        expirado:    isExpirado,
         renovado:    isRenovado,
-        removido:    isRemover,
-        pendente:    !isRenovado && !isRemover,
-        _removerRaw: remover,  // diagnóstico — remove depois
+        removido:    isRemover || isExpiradoPorData,  // expirados sem decisão = removidos
+        pendente:    isPendente,
+        _removerRaw: remover,
       });
     }
 
