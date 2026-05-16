@@ -96,7 +96,7 @@ export default function CustosView() {
   // Filtros de categoria/provedor/origem
   const [filterTipo,     setFilterTipo]     = useState("Todos");
   const [filterProvedor, setFilterProvedor] = useState("Todos");
-  const [filterOrigem,   setFilterOrigem]   = useState("Todos");
+  const [filterOrigens,  setFilterOrigens]  = useState([]);  // [] = todas
 
   // ── Auth ───────────────────────────────────────────────────
   useEffect(() => {
@@ -203,11 +203,11 @@ export default function CustosView() {
     return true;
   }), [parsedGastos, filterTipo, filterProvedor]);
 
-  // Leads filtrados por origem
+  // Leads filtrados por origem (multi-select)
   const filteredLeads = useMemo(() => parsedLeads.filter(l => {
-    if (filterOrigem !== "Todos" && l.origem !== filterOrigem) return false;
+    if (filterOrigens.length > 0 && !filterOrigens.includes(l.origem)) return false;
     return true;
-  }), [parsedLeads, filterOrigem]);
+  }), [parsedLeads, filterOrigens]);
 
   // KPIs — totalGasto usa valor efetivo por período (mensais prorateados, pontuais só se na data)
   const totalGasto = useMemo(() =>
@@ -399,14 +399,23 @@ export default function CustosView() {
               <div className="flex flex-wrap items-center gap-3">
                 <span className="origin-filter__label">Origem:</span>
                 <div className="flex items-center gap-1 flex-wrap">
-                  {["Todos", ...allOrigens].map((o, idx) => (
-                    <button key={o}
-                      className={`origin-chip ${filterOrigem === o ? "origin-chip--active" : ""}`}
-                      style={filterOrigem === o && o !== "Todos" ? { borderColor: PALETTE[(idx - 1) % PALETTE.length], background: PALETTE[(idx - 1) % PALETTE.length] + "33" } : {}}
-                      onClick={() => setFilterOrigem(o)}>
-                      {o === "Todos" ? `Todas as origens (${parsedLeads.length})` : o}
-                    </button>
-                  ))}
+                  {["Todos", ...allOrigens].map((o, idx) => {
+                    const isActive = o === "Todos" ? filterOrigens.length === 0 : filterOrigens.includes(o);
+                    const color = PALETTE[(idx - 1 + PALETTE.length) % PALETTE.length];
+                    return (
+                      <button key={o}
+                        className={`origin-chip ${isActive ? "origin-chip--active" : ""}`}
+                        style={isActive && o !== "Todos" ? { borderColor: color, background: color + "33" } : {}}
+                        onClick={() => {
+                          if (o === "Todos") { setFilterOrigens([]); return; }
+                          setFilterOrigens(prev =>
+                            prev.includes(o) ? prev.filter(x => x !== o) : [...prev, o]
+                          );
+                        }}>
+                        {o === "Todos" ? `Todas as origens (${parsedLeads.length})` : o}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}

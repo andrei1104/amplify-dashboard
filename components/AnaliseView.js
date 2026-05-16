@@ -83,7 +83,7 @@ const RC_AXIS  = { fill: "rgba(255,255,255,0.35)", fontSize: 10 };
 const RC_GRID  = { stroke: "rgba(255,255,255,0.06)", strokeDasharray: "3 3" };
 
 // ─── LeadsAndTrendChart: barras = agenciados por origem (clicável) + linhas ──
-function LeadsAndTrendChart({ dailyData, originColors, selectedOrigem, onOriginClick }) {
+function LeadsAndTrendChart({ dailyData, originColors, selectedOrigens = [], onOriginClick }) {
   if (!dailyData.length) return <p style={{ color: "var(--text-muted)", fontSize: "0.8rem", textAlign: "center", padding: "2rem 0" }}>Sem dados no período.</p>;
 
   // origens presentes nos agenciados (barras)
@@ -96,13 +96,15 @@ function LeadsAndTrendChart({ dailyData, originColors, selectedOrigem, onOriginC
     ...(d.byOriginAgenciados || {}),  // barras empilhadas = agenciados por origem
   }));
 
-  // Click por Bar individual
+  // Click por Bar individual — toggle no array
   const makeBarClick = (originName) => () => {
     if (!onOriginClick) return;
-    onOriginClick(prev => prev === originName ? "Todos" : originName);
+    onOriginClick(prev =>
+      prev.includes(originName) ? prev.filter(o => o !== originName) : [...prev, originName]
+    );
   };
 
-  const hasFilter = selectedOrigem && selectedOrigem !== "Todos";
+  const hasFilter = selectedOrigens.length > 0;
 
   // Legendas manuais
   const legendItems = [
@@ -181,7 +183,7 @@ function LeadsAndTrendChart({ dailyData, originColors, selectedOrigem, onOriginC
       {/* Legenda unificada — origens são clicáveis */}
       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "14px", alignItems: "center" }}>
         {legendItems.map(item => {
-          const isSelected = item.origin && selectedOrigem === item.origin;
+          const isSelected = item.origin && selectedOrigens.includes(item.origin);
           const isDimmed   = hasFilter && item.origin && !isSelected;
           return (
             <div key={item.label}
@@ -243,7 +245,7 @@ function LeadsAndTrendChart({ dailyData, originColors, selectedOrigem, onOriginC
                   radius={i === allOrigins.length - 1 ? [3,3,0,0] : [0,0,0,0]}
                   onClick={makeBarClick(o)}
                   style={{ cursor: "pointer" }}
-                  fillOpacity={hasFilter && selectedOrigem !== o ? 0.2 : 1}
+                  fillOpacity={hasFilter && !selectedOrigens.includes(o) ? 0.2 : 1}
                   fill={originColors[o] || "#7c3aed"}
                 >
                   <LabelList content={BarLabel} />
@@ -267,7 +269,7 @@ function LeadsAndTrendChart({ dailyData, originColors, selectedOrigem, onOriginC
 }
 
 // ─── OriginPie: pizza de origens (clicável) ───────────────────
-function OriginDonut({ origins, originColors, selectedOrigem, onOriginClick }) {
+function OriginDonut({ origins, originColors, selectedOrigens = [], onOriginClick }) {
   if (!origins.length) return <p style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>Sem dados.</p>;
 
   const total   = origins.reduce((a, b) => a + b.count, 0);
@@ -284,8 +286,12 @@ function OriginDonut({ origins, originColors, selectedOrigem, onOriginClick }) {
 
   const handleClick = (data) => {
     if (!onOriginClick) return;
-    onOriginClick(prev => prev === data.name ? "Todos" : data.name);
+    onOriginClick(prev =>
+      prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name]
+    );
   };
+
+  const hasFilter = selectedOrigens.length > 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
@@ -297,9 +303,9 @@ function OriginDonut({ origins, originColors, selectedOrigem, onOriginClick }) {
               {pieData.map((entry, i) => (
                 <Cell key={i}
                   fill={originColors[entry.name] || "#7c3aed"}
-                  stroke={selectedOrigem === entry.name ? "#fff" : "rgba(0,0,0,0.3)"}
-                  strokeWidth={selectedOrigem === entry.name ? 2 : 1}
-                  opacity={selectedOrigem && selectedOrigem !== "Todos" && selectedOrigem !== entry.name ? 0.35 : 1}
+                  stroke={selectedOrigens.includes(entry.name) ? "#fff" : "rgba(0,0,0,0.3)"}
+                  strokeWidth={selectedOrigens.includes(entry.name) ? 2 : 1}
+                  opacity={hasFilter && !selectedOrigens.includes(entry.name) ? 0.35 : 1}
                 />
               ))}
             </Pie>
@@ -307,9 +313,9 @@ function OriginDonut({ origins, originColors, selectedOrigem, onOriginClick }) {
           </PieChart>
         </ResponsiveContainer>
       </div>
-      {selectedOrigem && selectedOrigem !== "Todos" && (
+      {hasFilter && (
         <span style={{ fontSize: "0.68rem", color: "#a78bfa", cursor: "pointer", textDecoration: "underline" }}
-          onClick={() => onOriginClick?.(() => "Todos")}>
+          onClick={() => onOriginClick?.([])}>
           limpar filtro
         </span>
       )}
@@ -1171,7 +1177,7 @@ export default function AnaliseView({
   const [error,       setError]       = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [selectedSdr,    setSelectedSdr]    = useState([]);
-  const [selectedOrigem, setSelectedOrigem] = useState("Todos");
+  const [selectedOrigens, setSelectedOrigens] = useState([]);  // [] = todas
 
   // ─── Fetch ─────────────────────────────────────────────────
   const fetchData = useCallback(async (from, to) => {
@@ -1259,10 +1265,10 @@ export default function AnaliseView({
 
   // Filtrado por SDR + Origem (todos os gráficos usam mainLeads)
   const mainLeads = useMemo(() =>
-    selectedOrigem === "Todos"
+    selectedOrigens.length === 0
       ? sdrFilteredLeads
-      : sdrFilteredLeads.filter(l => l.origem === selectedOrigem),
-  [sdrFilteredLeads, selectedOrigem]);
+      : sdrFilteredLeads.filter(l => selectedOrigens.includes(l.origem)),
+  [sdrFilteredLeads, selectedOrigens]);
 
   const originColors = useMemo(() => {
     const map = {};
@@ -1561,7 +1567,7 @@ export default function AnaliseView({
                       return next;
                     });
                   }
-                  setSelectedOrigem("Todos");
+                  setSelectedOrigens([]);
                 }}
               >
                 {sdr === "Todos" ? "Todos" : label}
@@ -1576,7 +1582,9 @@ export default function AnaliseView({
           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
             <span className="origin-filter__label">Origem:</span>
             {["Todos", ...allOrigins].map((origem, idx) => {
-              const isActive = selectedOrigem === origem;
+              const isActive = origem === "Todos"
+                ? selectedOrigens.length === 0
+                : selectedOrigens.includes(origem);
               const color = ORIGIN_COLOR_MAP[origem] || ORIGIN_COLORS[(idx - 1 + ORIGIN_COLORS.length) % ORIGIN_COLORS.length];
               const count = origem === "Todos"
                 ? sdrFilteredLeads.length
@@ -1586,7 +1594,12 @@ export default function AnaliseView({
                   key={origem}
                   className={`origin-chip ${isActive ? "origin-chip--active" : ""}`}
                   style={isActive && origem !== "Todos" ? { borderColor: color + "80", color } : {}}
-                  onClick={() => setSelectedOrigem(origem)}
+                  onClick={() => {
+                    if (origem === "Todos") { setSelectedOrigens([]); return; }
+                    setSelectedOrigens(prev =>
+                      prev.includes(origem) ? prev.filter(o => o !== origem) : [...prev, origem]
+                    );
+                  }}
                 >
                   {origem === "Todos" ? "Todas origens" : origem}
                   <span style={{ marginLeft: "3px", fontWeight: 700, fontSize: "0.7rem" }}>({count})</span>
@@ -1657,7 +1670,7 @@ export default function AnaliseView({
                 <h2 style={{ fontSize: "0.88rem", fontWeight: 700, color: "var(--text-primary)" }}>📅 Leads por Dia · Agenciados · Conv %</h2>
                 <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "3px" }}>Barras = agenciados por origem · Linha verde = total leads · Linha roxa = taxa de conversão</p>
               </div>
-              <LeadsAndTrendChart dailyData={dailyData} originColors={originColors} selectedOrigem={selectedOrigem} onOriginClick={setSelectedOrigem} />
+              <LeadsAndTrendChart dailyData={dailyData} originColors={originColors} selectedOrigens={selectedOrigens} onOriginClick={setSelectedOrigens} />
             </div>
 
             {/* Leads por Dia por Fase (com filtro de SDR) */}
@@ -1722,7 +1735,7 @@ export default function AnaliseView({
               {/* Origem dos leads */}
               <div className="glass-panel p-6 animate-fade-in">
                 <h2 style={{ fontSize: "0.88rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "16px" }}>🌐 Origem dos Leads</h2>
-                <OriginDonut origins={originBreakdown} originColors={originColors} selectedOrigem={selectedOrigem} onOriginClick={setSelectedOrigem} />
+                <OriginDonut origins={originBreakdown} originColors={originColors} selectedOrigens={selectedOrigens} onOriginClick={setSelectedOrigens} />
                 {originBreakdown.length > 0 && (
                   <div style={{ marginTop: "20px", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "16px" }}>
                     <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "10px" }}>
