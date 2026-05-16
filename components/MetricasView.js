@@ -486,16 +486,18 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed, periodFrom, 
   }
 
   // Helpers de filtro por período
-  // Chamados = lead foi trabalhado no período (editedDate no range)
-  // Agenciados = lead virou agenciado no período (date/huggyDate no range)
-  const inPeriod     = r => r.editedDate && r.editedDate >= periodFrom && r.editedDate <= periodTo;
-  const agInPeriod   = r => r.date && r.date >= periodFrom && r.date <= periodTo && isAgenciado(r.status);
+  // Chamados e Agenciados: ambos usam editedDate para garantir consistência com os demais blocos
+  // editedDate = last_edited_time do Notion (melhor proxy para "quando o lead foi trabalhado / virou agenciado")
+  const inPeriod   = r => r.editedDate && r.editedDate >= periodFrom && r.editedDate <= periodTo;
+  const agInPeriod = r => inPeriod(r) && isAgenciado(r.status);
 
   // Dados por categoria (Silver / Gold / Diamond)
   const catData = Object.entries(CAT_META).map(([cat, meta]) => {
     const cl      = leads.filter(r => r.categoria === cat);
+    // byStatus mostra só leads que foram trabalhados no período (editedDate no range)
+    const clPeriod = cl.filter(r => inPeriod(r));
     const byStatus = {};
-    cl.forEach(r => { const s = r.status||"—"; byStatus[s]=(byStatus[s]||0)+1; });
+    clPeriod.forEach(r => { const s = r.status||"—"; byStatus[s]=(byStatus[s]||0)+1; });
     // chamados e agenciados filtrados ao período
     const contacted  = cl.filter(r => inPeriod(r) && r.status && r.status !== "NÃO CONTATADO").length;
     const agenciados = cl.filter(r => agInPeriod(r)).length;
@@ -504,7 +506,8 @@ function SniperLeadsBlock({ sniperCrm, sniperDailyBySdr, wdElapsed, periodFrom, 
     const taxaDen    = contacted + agenciados;
     const taxa       = taxaDen > 0 ? ((agenciados / taxaDen) * 100).toFixed(1) : "0.0";
     const maxCnt     = Math.max(1, ...Object.values(byStatus));
-    return { cat, meta, cl, byStatus, contacted, agenciados, desvinc, taxa, maxCnt };
+    // total = leads trabalhados no período (para o contador "N leads" no card)
+    return { cat, meta, cl: clPeriod, byStatus, contacted, agenciados, desvinc, taxa, maxCnt };
   });
 
   // Dias úteis transcorridos (para taxa/dia)
@@ -1316,16 +1319,13 @@ export default function MetricasView() {
   // • Para metas mensais (agenciados no período): filtra por huggyDate quando disponível;
   //   se huggyDate for null, o lead não conta para a meta do mês (evita distorção por created_time antigo)
 
+  // filteredSniperCrm = leads cujo editedDate (last_edited_time) está no período
+  // Usado para contar agenciados no período de forma consistente em todos os blocos
   const filteredSniperCrm = useMemo(() => {
     if (!sniperCrm.length) return [];
-    // Verifica se alguma entrada tem huggyDate (campo preenchido intencionalmente)
-    const anyHasHuggyDate = sniperCrm.some(r => r.huggyDate);
-    if (anyHasHuggyDate) {
-      // Filtra apenas por huggyDate — entradas sem huggyDate ficam de fora da contagem mensal
-      return sniperCrm.filter(r => r.huggyDate && r.huggyDate >= appliedFrom && r.huggyDate <= appliedTo);
-    }
-    // Fallback: nenhum tem huggyDate → usa created_time mas com janela ampla (desde início Q2)
-    return sniperCrm.filter(r => r.date && r.date >= appliedFrom && r.date <= appliedTo);
+    return sniperCrm.filter(r =>
+      r.editedDate && r.editedDate >= appliedFrom && r.editedDate <= appliedTo
+    );
   }, [sniperCrm, appliedFrom, appliedTo]);
 
   // Leads agenciados no período (metas mensais)
