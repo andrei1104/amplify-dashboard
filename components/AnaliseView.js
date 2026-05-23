@@ -1247,6 +1247,7 @@ export default function AnaliseView({
     sdr:    item.sdr    || "Desconhecido",
     fase:   item.fase   || "Desconhecido",
     origem: (item.origem && item.origem !== "Desconhecido") ? item.origem : "Origem Desconhecida",
+    nome:   item.nome   || null,
     date:   item.date   || null,
   })), [data]);
 
@@ -1609,6 +1610,69 @@ export default function AnaliseView({
           </div>
         )}
       </div>
+
+      {/* ── Lista de Agenciados do período ── */}
+      {!loading && !error && (() => {
+        const agenciadosList = mainLeads.filter(l =>
+          l.fase === "Agenciado" || l.fase === "Convite Aceito"
+        );
+        if (agenciadosList.length === 0) return null;
+
+        // agrupa por fase
+        const agenciados   = agenciadosList.filter(l => l.fase === "Agenciado");
+        const conviteAceito = agenciadosList.filter(l => l.fase === "Convite Aceito");
+
+        const ChipFase = ({ fase }) => {
+          const color = fase === "Agenciado" ? "#10b981" : "#14b8a6";
+          return (
+            <span style={{
+              fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: "0.06em", padding: "2px 7px", borderRadius: "999px",
+              background: color + "22", color, border: `1px solid ${color}55`,
+              flexShrink: 0,
+            }}>{fase}</span>
+          );
+        };
+
+        const renderGroup = (list, label, color) => list.length > 0 && (
+          <div>
+            <p style={{ fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: "0.07em", color, marginBottom: "8px" }}>
+              {label} ({list.length})
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {list.map(l => (
+                <div key={l.id} style={{
+                  display: "flex", alignItems: "center", gap: "6px",
+                  background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: "8px", padding: "5px 10px",
+                }}>
+                  <span style={{ fontSize: "0.78rem", color: "var(--text-primary)", fontWeight: 500 }}>
+                    {l.nome || "–"}
+                  </span>
+                  {l.sdr && l.sdr !== "Desconhecido" && (
+                    <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
+                      · {AGENT_META[l.sdr]?.displayName || l.sdr.split(" ")[0]}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+
+        return (
+          <div className="glass-panel p-4 mb-6 animate-fade-in"
+            style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <p style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: "2px" }}>
+              🏆 Agenciados no período — {agenciadosList.length} no total
+            </p>
+            {renderGroup(agenciados,    "Agenciado",     "#10b981")}
+            {renderGroup(conviteAceito, "Convite Aceito", "#14b8a6")}
+          </div>
+        );
+      })()}
 
       {/* ── Estado inicial de carregamento ── */}
       {loading && data.length === 0 ? (
