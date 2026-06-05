@@ -234,7 +234,16 @@ export async function GET(request) {
 
     // ── Transforma para slim e guarda cache ───────────────────
     const slimResults = allResults.map(r => toSlim(r, tz, dateField));
-    const meta        = { from, to, total: slimResults.length };
+
+    // ── Debug: distribuição de datas (aparece nos logs do servidor) ───
+    const dateDist = {};
+    slimResults.forEach(r => { if (r.date) dateDist[r.date] = (dateDist[r.date] || 0) + 1; });
+    console.log(`[API] dateField=${dateField} | range=${from}→${to} | tz=${tz} | total=${slimResults.length} | pages=${pageCount}`);
+    console.log(`[API] dist por data:`, JSON.stringify(
+      Object.entries(dateDist).sort(([a],[b]) => a.localeCompare(b))
+    ));
+
+    const meta = { from, to, total: slimResults.length, dateDist };
 
     responseCache.set(cacheKey, { data: slimResults, meta, ts: Date.now() });
 
@@ -244,7 +253,7 @@ export async function GET(request) {
       responseCache.delete(oldest[0]);
     }
 
-    return Response.json({ success: true, data: slimResults, meta });
+    return Response.json({ success: true, data: slimResults, meta, _debug: { dateDist, pages: pageCount, filter } });
   } catch (error) {
     console.error("Erro consultando Notion:", error);
     return Response.json(
