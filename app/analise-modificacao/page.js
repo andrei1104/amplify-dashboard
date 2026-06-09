@@ -7,7 +7,7 @@ export const metadata = {
 export default function AnaliseModificacao() {
   return (
     <AnaliseView
-      dateField="last_edited_time"
+      dateField="Última mensagem enviada"
       pageTitle="Análise Atendimentos"
       pageSubtitle={null}
     />
